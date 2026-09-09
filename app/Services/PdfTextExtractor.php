@@ -3,15 +3,10 @@
 namespace App\Services;
 
 use RuntimeException;
-use Smalot\PdfParser\Parser;
+use Symfony\Component\Process\Process;
 
 class PdfTextExtractor
 {
-    public function __construct(
-        private readonly Parser $parser
-    ) {
-    }
-
     public function extract(string $path): string
     {
         if (!file_exists($path)) {
@@ -21,23 +16,28 @@ class PdfTextExtractor
         }
 
         try {
-            if (stripos($path, 'RONIX') !== false) {
-                $process = new \Symfony\Component\Process\Process([
-                    'C:\\Tools\\poppler\\Library\\bin\\pdftotext.exe',
-                    $path,
-                    '-'
-                ]);
-                $process->run();
-                if ($process->isSuccessful()) {
-                    return trim($process->getOutput());
-                }
+            $binPath = config('services.poppler.bin_path', 'C:\\Tools\\poppler\\Library\\bin');
+            $executable = $binPath . '\\pdftotext.exe';
+            
+            // Reemplazo de slashes para asegurar formato correcto en Windows si es necesario
+            $executable = str_replace('/', '\\', $executable);
+
+            $process = new Process([
+                $executable,
+                $path,
+                '-' // Imprimir stdout
+            ]);
+            
+            // Timeout de 10 min por si el pdf es GIGANTE
+            $process->setTimeout(600);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                return trim($process->getOutput());
             }
 
-            // Aumentamos memoria por si acaso
-            ini_set('memory_limit', '1024M');
-            $pdf = $this->parser->parseFile($path);
+            throw new RuntimeException("Error en pdftotext: " . $process->getErrorOutput());
 
-            return trim($pdf->getText());
         } catch (\Throwable $e) {
             throw new RuntimeException(
                 "No se pudo extraer el texto del PDF: {$e->getMessage()}",

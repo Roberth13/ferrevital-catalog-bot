@@ -22,7 +22,7 @@ class AiCatalogParserTest extends TestCase
     {
         parent::setUp();
         config(['services.gemini.api_key' => 'fake-key']);
-        config(['services.gemini.model' => 'gemini-2.5-flash']);
+        config(['services.gemini.model' => 'gemini-3.6-flash']);
     }
 
     public function test_it_dispatches_jobs_for_chunks()

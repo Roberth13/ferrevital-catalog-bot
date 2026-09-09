@@ -32,10 +32,21 @@ class CatalogProcessor
 
             // Si el texto es muy corto, asumimos que es un PDF de imágenes
             if (strlen(trim($text)) < 500) {
-                // Usamos FPDI o Smalot para contar páginas y pasar a OCR
-                $parser = new \Smalot\PdfParser\Parser();
-                $pdf = $parser->parseFile($path);
-                $totalPages = count($pdf->getPages());
+                // Usamos pdfinfo (Poppler) para contar páginas sin cargar memoria
+                $binPath = config('services.poppler.bin_path', 'C:\\Tools\\poppler\\Library\\bin');
+                $executable = str_replace('/', '\\', $binPath . '\\pdfinfo.exe');
+                
+                $process = new \Symfony\Component\Process\Process([$executable, $path]);
+                $process->run();
+                
+                $totalPages = 1;
+                if ($process->isSuccessful()) {
+                    if (preg_match('/Pages:\s+(\d+)/i', $process->getOutput(), $matches)) {
+                        $totalPages = (int) $matches[1];
+                    }
+                } else {
+                    throw new RuntimeException("Error al contar páginas con pdfinfo: " . $process->getErrorOutput());
+                }
 
                 $pagesData = $this->ocrProcessor->process($path, $totalPages);
                 

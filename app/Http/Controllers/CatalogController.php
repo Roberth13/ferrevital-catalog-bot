@@ -20,7 +20,7 @@ class CatalogController extends Controller
                 'required',
                 'file',
                 'mimes:pdf',
-                'max:51200',
+                'max:153600', // 150MB
             ],
         ]);
 

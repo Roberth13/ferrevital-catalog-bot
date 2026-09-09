@@ -51,7 +51,7 @@ class ParseAiCatalogChunkJob implements ShouldQueue
     public function handle()
     {
         $apiKey = config('services.gemini.api_key');
-        $model = config('services.gemini.model', 'gemini-2.5-flash');
+        $model = config('services.gemini.model', 'gemini-3.6-flash');
 
         if (empty($apiKey)) {
             Log::error('Gemini API key no configurada.');

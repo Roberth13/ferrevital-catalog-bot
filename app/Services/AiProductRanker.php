@@ -39,7 +39,7 @@ class AiProductRanker
         })->values()->toArray();
 
         $apiKey = config('services.gemini.api_key');
-        $model = config('services.gemini.model', 'gemini-2.5-flash');
+        $model = config('services.gemini.model', 'gemini-3.6-flash');
 
         if (empty($apiKey)) {
             Log::warning("No se pudo rankear productos: API Key no configurada.");
