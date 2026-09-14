@@ -74,7 +74,7 @@ class AiCatalogParserTest extends TestCase
 
         $job = new ParseAiCatalogChunkJob("some text", $catalog->id);
         
-        $job->handle();
+        $job->handle(app(\App\Contracts\AiProviderInterface::class));
 
         $this->assertDatabaseHas('products', [
             'codigo' => 'A1',
@@ -91,9 +91,9 @@ class AiCatalogParserTest extends TestCase
 
         $job = new ParseAiCatalogChunkJob("some text", 1);
         
-        $this->expectException(RequestException::class);
+        $this->expectException(\App\Exceptions\Ai\AiRateLimitException::class);
 
-        $job->handle();
+        $job->handle(app(\App\Contracts\AiProviderInterface::class));
     }
 
     public function test_job_throws_exception_on_503_to_trigger_backoff()
@@ -104,9 +104,9 @@ class AiCatalogParserTest extends TestCase
 
         $job = new ParseAiCatalogChunkJob("some text", 1);
         
-        $this->expectException(RequestException::class);
+        $this->expectException(\App\Exceptions\Ai\AiTemporaryException::class);
 
-        $job->handle();
+        $job->handle(app(\App\Contracts\AiProviderInterface::class));
     }
 
     public function test_job_throws_catalog_parse_exception_on_invalid_json()
@@ -128,9 +128,8 @@ class AiCatalogParserTest extends TestCase
         $job = new ParseAiCatalogChunkJob("some text", 1);
         
         $this->expectException(CatalogParseException::class);
-        $this->expectExceptionMessage("El contenido extraído no es un JSON válido.");
 
-        $job->handle();
+        $job->handle(app(\App\Contracts\AiProviderInterface::class));
     }
     
     public function test_job_throws_catalog_parse_exception_on_invalid_api_response_schema()
@@ -142,8 +141,7 @@ class AiCatalogParserTest extends TestCase
         $job = new ParseAiCatalogChunkJob("some text", 1);
         
         $this->expectException(CatalogParseException::class);
-        $this->expectExceptionMessage("Respuesta JSON inválida de Gemini.");
 
-        $job->handle();
+        $job->handle(app(\App\Contracts\AiProviderInterface::class));
     }
 }

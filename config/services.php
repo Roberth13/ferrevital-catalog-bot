@@ -43,6 +43,17 @@ return [
         'tesseract_path' => env('TESSERACT_PATH'),
     ],
 
+    'ai' => [
+        'provider' => env('AI_PROVIDER', 'gemini'),
+        'extraction_prompt_version' => env('AI_EXTRACTION_PROMPT_VERSION', 'v1'),
+        'ranking_prompt_version' => env('AI_RANKING_PROMPT_VERSION', 'v1'),
+        'parser_version' => env('PARSER_VERSION', 'v1'),
+        'gemini' => [
+            'api_key' => env('GEMINI_API_KEY'),
+            'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
+        ],
+    ],
+
     'gemini' => [
         'api_key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),

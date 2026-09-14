@@ -16,11 +16,15 @@ class PdfTextExtractor
         }
 
         try {
-            $binPath = config('services.poppler.bin_path', 'C:\\Tools\\poppler\\Library\\bin');
-            $executable = $binPath . '\\pdftotext.exe';
-            
-            // Reemplazo de slashes para asegurar formato correcto en Windows si es necesario
-            $executable = str_replace('/', '\\', $executable);
+            $isWindows = PHP_OS_FAMILY === 'Windows';
+            $binPath = config('services.poppler.bin_path');
+            $binaryName = $isWindows ? 'pdftotext.exe' : 'pdftotext';
+
+            if (!empty($binPath)) {
+                $executable = rtrim($binPath, '/\\') . DIRECTORY_SEPARATOR . $binaryName;
+            } else {
+                $executable = $isWindows ? 'C:\\Tools\\poppler\\Library\\bin\\pdftotext.exe' : 'pdftotext';
+            }
 
             $process = new Process([
                 $executable,

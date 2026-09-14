@@ -3,63 +3,27 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Catalog;
+use App\Models\Supplier;
+use App\Services\ProductSearchService;
 use Illuminate\Http\Request;
 use Spatie\SimpleExcel\SimpleExcelWriter;
 
 class ProductController extends Controller
 {
+    public function __construct(
+        private readonly ProductSearchService $searchService
+    ) {
+    }
+
     public function index(Request $request)
     {
-        $query = Product::with('catalog');
-
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('nombre', 'like', "%{$search}%")
-                  ->orWhere('codigo', 'like', "%{$search}%");
-            });
-        }
-
-        if ($request->filled('catalog_id')) {
-            $query->where('catalog_id', $request->catalog_id);
-        }
-
+        $products = $this->searchService->search($request->all());
+        $catalogs = Catalog::orderBy('created_at', 'desc')->get();
+        $suppliers = Supplier::orderBy('name', 'asc')->get();
         $perPage = $request->input('per_page', 20);
-        $perPageInt = $perPage === 'all' ? ($query->count() ?: 1) : (int) $perPage;
 
-        if ($request->filled('search')) {
-            // Limitar a 100 resultados para no exceder tokens de IA
-            $allMatching = $query->limit(100)->get();
-            
-            if ($allMatching->count() > 0) {
-                $ranker = app(\App\Services\AiProductRanker::class);
-                $rankedIds = $ranker->rankByValueForMoney($allMatching, $request->search);
-                
-                // Reordenar la colección según la IA
-                $sortedProducts = $allMatching->sortBy(function($model) use ($rankedIds) {
-                    return array_search($model->id, $rankedIds);
-                })->values();
-
-                // Paginación manual
-                $page = \Illuminate\Pagination\Paginator::resolveCurrentPage() ?: 1;
-                $products = new \Illuminate\Pagination\LengthAwarePaginator(
-                    $sortedProducts->forPage($page, $perPageInt),
-                    $sortedProducts->count(),
-                    $perPageInt,
-                    $page,
-                    ['path' => \Illuminate\Pagination\Paginator::resolveCurrentPath()]
-                );
-                $products->withQueryString();
-            } else {
-                $products = $query->paginate($perPageInt)->withQueryString();
-            }
-        } else {
-            $products = $query->paginate($perPageInt)->withQueryString();
-        }
-
-        $catalogs = \App\Models\Catalog::orderBy('created_at', 'desc')->get();
-
-        return view('products.index', compact('products', 'catalogs', 'perPage'));
+        return view('products.index', compact('products', 'catalogs', 'suppliers', 'perPage'));
     }
 
     public function update(Request $request, Product $product)
@@ -95,13 +59,14 @@ class ProductController extends Controller
 
     public function export(Request $request)
     {
-        $query = Product::with('catalog');
+        $query = Product::with(['catalog', 'supplier']);
 
         if ($request->filled('search')) {
-            $search = $request->search;
+            $search = trim($request->search);
             $query->where(function($q) use ($search) {
                 $q->where('nombre', 'like', "%{$search}%")
-                  ->orWhere('codigo', 'like', "%{$search}%");
+                  ->orWhere('codigo', 'like', "%{$search}%")
+                  ->orWhere('descripcion', 'like', "%{$search}%");
             });
         }
 
@@ -109,23 +74,44 @@ class ProductController extends Controller
             $query->where('catalog_id', $request->catalog_id);
         }
 
+        if ($request->filled('supplier_id')) {
+            $query->where('supplier_id', $request->supplier_id);
+        }
+
         $fileName = 'productos_export_' . date('Y-m-d_H-i-s') . '.xlsx';
-        $writer = SimpleExcelWriter::streamDownload($fileName);
+        $tempPath = tempnam(sys_get_temp_dir(), 'export_') . '.xlsx';
+
+        $writer = SimpleExcelWriter::create($tempPath);
 
         $query->chunk(1000, function ($products) use ($writer) {
             foreach ($products as $product) {
                 $writer->addRow([
+                    'Proveedor' => $product->supplier ? $product->supplier->name : 'Proveedor Genérico',
                     'Código' => $product->codigo,
                     'Nombre' => $product->nombre,
-                    'Precio Divisa' => $product->precio_divisa,
-                    'Precio Bs' => $product->precio_bs,
+                    'Precio Costo Divisa' => $product->precio_divisa,
+                    'Precio Costo Bs' => $product->precio_bs,
+                    'Precio Venta Divisa' => $product->precio_venta_divisa,
+                    'Precio Venta Bs' => $product->precio_venta_bs,
+                    'Fórmula Venta' => $product->sale_price_formula ?? '',
+                    'Base Venta' => $product->sale_price_base ?? '',
+                    'Descripción técnica' => $product->descripcion ?? '',
+                    'Garantía' => $product->garantia ?? '',
+                    'Condiciones proveedor' => $product->condiciones ?? '',
+                    'Tiempo entrega' => $product->tiempo_entrega ?? '',
+                    'Método extracción' => $product->extraction_method ?? '',
+                    'Página' => $product->page_number ?? '',
                     'Catálogo' => $product->catalog ? $product->catalog->original_filename : 'N/A',
                     'Estado' => $product->is_active ? 'Activo' : 'Inactivo',
                 ]);
             }
         });
 
-        return $writer->toBrowser();
+        $writer->close();
+
+        return response()->download($tempPath, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
     }
 
     public function bulkAction(Request $request)

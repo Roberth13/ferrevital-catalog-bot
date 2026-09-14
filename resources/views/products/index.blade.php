@@ -251,7 +251,7 @@
         <h1>Inventario</h1>
         
         <div class="actions">
-            <form action="{{ route('products.index') }}" method="GET" class="search-form">
+            <form action="{{ route('products.index') }}" method="GET" class="search-form" style="flex-wrap: wrap;">
                 <select name="per_page" class="search-input" style="width: auto;" onchange="this.form.submit()">
                     <option value="10" {{ (isset($perPage) && $perPage == 10) ? 'selected' : '' }}>10 por pág.</option>
                     <option value="15" {{ (isset($perPage) && $perPage == 15) ? 'selected' : '' }}>15 por pág.</option>
@@ -259,6 +259,17 @@
                     <option value="50" {{ (isset($perPage) && $perPage == 50) ? 'selected' : '' }}>50 por pág.</option>
                     <option value="100" {{ (isset($perPage) && $perPage == 100) ? 'selected' : '' }}>100 por pág.</option>
                     <option value="all" {{ (isset($perPage) && $perPage === 'all') ? 'selected' : '' }}>Todos</option>
+                </select>
+
+                <select name="supplier_id" class="search-input" style="width: auto;" onchange="this.form.submit()">
+                    <option value="">Todos los Proveedores</option>
+                    @if(isset($suppliers))
+                        @foreach($suppliers as $sup)
+                            <option value="{{ $sup->id }}" {{ request('supplier_id') == $sup->id ? 'selected' : '' }}>
+                                {{ $sup->name }}
+                            </option>
+                        @endforeach
+                    @endif
                 </select>
 
                 <select name="catalog_id" class="search-input" style="width: auto;" onchange="this.form.submit()">
@@ -270,11 +281,11 @@
                     @endforeach
                 </select>
                 
-                <input type="text" name="search" class="search-input" placeholder="Buscar por código o nombre..." value="{{ request('search') }}">
+                <input type="text" name="search" class="search-input" placeholder="Buscar por código, nombre o descripción..." value="{{ request('search') }}">
                 <button type="submit" class="btn btn-primary">Buscar</button>
             </form>
 
-            <a href="{{ route('products.export', request()->query()) }}" class="btn btn-success" style="background: var(--success); color: white; border: none;">
+            <a href="{{ route('products.export', request()->query()) }}" class="btn btn-success" style="background: var(--success); color: white; border: none; height: fit-content; align-self: center;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 Excel
             </a>
@@ -307,11 +318,14 @@
                     <th style="width: 40px; text-align: center;">
                         <input type="checkbox" id="selectAll" class="custom-checkbox" title="Seleccionar Todos">
                     </th>
+                    <th>Proveedor</th>
                     <th>Catálogo</th>
                     <th>Código</th>
                     <th>Nombre</th>
-                    <th>P. Divisa</th>
-                    <th>P. Bs</th>
+                    <th>P. Prov. Divisa</th>
+                    <th>P. Prov. Bs</th>
+                    <th>P. Venta Divisa</th>
+                    <th>P. Venta Bs</th>
                     <th>Estado</th>
                     <th>Acciones</th>
                 </tr>
@@ -322,11 +336,20 @@
                         <td style="text-align: center;">
                             <input type="checkbox" name="product_ids[]" value="{{ $product->id }}" class="custom-checkbox product-checkbox">
                         </td>
+                        <td style="font-weight: 600; font-size: 0.85rem; color: var(--text-main);">
+                            {{ $product->supplier ? $product->supplier->name : 'Proveedor Genérico' }}
+                        </td>
                         <td>{{ $product->catalog ? $product->catalog->original_filename : 'N/A' }}</td>
-                        <td style="font-weight: 600;">{{ $product->codigo }}</td>
-                        <td>{{ Str::limit($product->nombre, 50) }}</td>
+                        <td style="font-weight: 600; font-family: monospace; color: var(--primary);">{{ $product->codigo }}</td>
+                        <td>{{ Str::limit($product->nombre, 45) }}</td>
                         <td>${{ number_format($product->precio_divisa, 2) }}</td>
                         <td>{{ $product->precio_bs ? 'Bs ' . number_format($product->precio_bs, 2) : '-' }}</td>
+                        <td style="font-weight: 700; color: var(--success);">
+                            {{ $product->precio_venta_divisa !== null ? '$' . number_format($product->precio_venta_divisa, 2) : '-' }}
+                        </td>
+                        <td style="font-weight: 700; color: var(--success);">
+                            {{ $product->precio_venta_bs !== null ? 'Bs ' . number_format($product->precio_venta_bs, 2) : '-' }}
+                        </td>
                         <td>
                             <span class="status-badge {{ $product->is_active ? 'status-active' : 'status-inactive' }}">
                                 {{ $product->is_active ? 'Activo' : 'Inactivo' }}
@@ -335,7 +358,7 @@
                         <td>
                             <div class="row-actions">
                                 <!-- Edit Btn -->
-                                <button class="icon-btn" onclick="openEditModal({{ $product->id }}, '{{ addslashes($product->nombre) }}', '{{ $product->precio_divisa }}', '{{ $product->precio_bs }}')" title="Editar">
+                                <button class="icon-btn" onclick="openEditModal({{ $product->id }}, '{{ addslashes($product->nombre) }}', '{{ $product->precio_divisa }}', '{{ $product->precio_bs }}')" title="Editar Datos Básicos">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 </button>
 
@@ -363,7 +386,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" style="text-align:center; color:var(--text-muted); padding: 3rem;">
+                        <td colspan="10" style="text-align:center; color:var(--text-muted); padding: 3rem;">
                             No se encontraron productos.
                         </td>
                     </tr>

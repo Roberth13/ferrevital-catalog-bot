@@ -17,8 +17,10 @@ class JadeverParser implements CatalogParserInterface
 
         $pattern = '/(.*?)\n([A-Z0-9]{8,15})\n(.*?)\nUnit Uni\/Min Uni\/Pack Precio\n[A-Z]+\s+\d+\s+[\d.]+\s+\$\s+([\d.]+)/s';
 
-        // Dividir el texto en bloques usando "Unit Uni/Min Uni/Pack Precio" como ancla puede ser más seguro si el patrón falla, pero intentemos preg_match_all primero.
-        // Haremos un explode por "Unit Uni/Min Uni/Pack Precio" para procesar cada bloque de producto de forma segura hacia atrás y hacia adelante.
+        // Si el texto no contiene la cabecera específica "Unit Uni/Min Uni/Pack Precio", usar el robusto ProductParser
+        if (stripos($normalText, "Unit Uni/Min Uni/Pack Precio") === false) {
+            return (new \App\Services\ProductParser())->parse($normalText, $redText, $catalogId);
+        }
 
         $blocks = explode("Unit Uni/Min Uni/Pack Precio", $normalText);
         

@@ -2,21 +2,24 @@
 
 namespace App\Jobs;
 
+use App\Contracts\AiProviderInterface;
+use App\Exceptions\Ai\AiRateLimitException;
+use App\Exceptions\Ai\AiResponseParseException;
+use App\Exceptions\Ai\AiTemporaryException;
 use App\Exceptions\CatalogParseException;
 use App\Models\Catalog;
+use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
-use Exception;
+use Illuminate\Support\Facades\Log;
 
 class ParseAiCatalogChunkJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
      * Número máximo de intentos.
@@ -29,7 +32,8 @@ class ParseAiCatalogChunkJob implements ShouldQueue
      */
     public function __construct(
         public readonly string $chunk,
-        public readonly ?int $catalogId
+        public readonly ?int $catalogId,
+        public readonly ?int $pageNumber = null
     ) {
     }
 
@@ -46,157 +50,61 @@ class ParseAiCatalogChunkJob implements ShouldQueue
     /**
      * Execute the job.
      *
+     * @param AiProviderInterface $aiProvider
      * @return void
      */
-    public function handle()
+    public function handle(AiProviderInterface $aiProvider): void
     {
-        $apiKey = config('services.gemini.api_key');
-        $model = config('services.gemini.model', 'gemini-3.6-flash');
-
-        if (empty($apiKey)) {
-            Log::error('Gemini API key no configurada.');
-            return;
-        }
-
-        $prompt = "Eres un asistente experto en catálogos de ferretería.
-Debes extraer los productos del siguiente texto, que provienen de una página de un PDF.
-Devuelve los resultados estrictamente en formato JSON de acuerdo al responseSchema definido.
-
-Reglas:
-1. codigo: Si no hay código (SKU), usa vacio o ignora.
-2. nombre: Nombre completo del producto.
-3. precio_divisa: Extrae como número (solo la cifra, sin $). Si no hay, usa 0.
-4. precio_bs: Extrae como número (solo la cifra, sin Bs). Si no hay, usa 0.
-5. descripcion: Texto adicional si aplica.
-6. garantia: Si hay texto sobre garantía en la página (ej: 'garantía de 1 año'), aplícala a los productos, sino vacio.
-7. condiciones: Condiciones de proveedor (ej: 'Venta por bulto cerrado'), sino vacio.
-8. tiempo_entrega: Tiempo de entrega si se menciona, sino vacio.
-
-Ignora texto legal, basura OCR o encabezados que no sean productos.";
-
-        $payload = [
-            'contents' => [
-                [
-                    'parts' => [
-                        ['text' => $prompt . "\n\nTEXTO A ANALIZAR:\n" . $this->chunk]
-                    ]
-                ]
-            ],
-            'generationConfig' => [
-                'temperature' => 0.0,
-                'responseMimeType' => 'application/json',
-                'responseSchema' => [
-                    'type' => 'ARRAY',
-                    'items' => [
-                        'type' => 'OBJECT',
-                        'properties' => [
-                            'codigo' => ['type' => 'STRING'],
-                            'nombre' => ['type' => 'STRING'],
-                            'precio_divisa' => ['type' => 'NUMBER'],
-                            'precio_bs' => ['type' => 'NUMBER'],
-                            'descripcion' => ['type' => 'STRING'],
-                            'garantia' => ['type' => 'STRING'],
-                            'condiciones' => ['type' => 'STRING'],
-                            'tiempo_entrega' => ['type' => 'STRING']
-                        ],
-                        'required' => [
-                            'codigo', 'nombre', 'precio_divisa', 'precio_bs',
-                            'descripcion', 'garantia', 'condiciones', 'tiempo_entrega'
-                        ]
-                    ]
-                ]
-            ]
-        ];
-
         try {
-            $response = Http::timeout(120)->post('https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent?key=' . $apiKey, $payload);
-        } catch (Exception $e) {
-            Log::warning('Error de red al conectar con Gemini.', [
+            $products = $aiProvider->extractProductsFromChunk($this->chunk);
+        } catch (AiRateLimitException | AiTemporaryException $e) {
+            Log::warning('Fallo temporal o limite de cuota en IA.', [
                 'catalog_id' => $this->catalogId,
                 'attempt' => $this->attempts(),
                 'error' => $e->getMessage()
             ]);
-            throw $e;
-        }
-
-        if (!$response->successful()) {
-            $status = $response->status();
-            
-            // Ocultar API Key en logs
-            $body = $response->body();
-            
-            Log::warning("Respuesta fallida de Gemini", [
+            throw $e; // Laravel interceptará esto y aplicará el backoff
+        } catch (AiResponseParseException $e) {
+            Log::error('Respuesta de IA no es un JSON válido.', [
                 'catalog_id' => $this->catalogId,
-                'attempt' => $this->attempts(),
-                'status' => $status,
-                'body' => substr($body, 0, 500) // Truncar si es muy largo
+                'raw' => $e->rawResponse
             ]);
-
-            // Rate limits o saturación
-            if ($status === 429 || $status === 503) {
-                // Laravel interceptará esto y aplicará el backoff
-                $response->throw(); 
-            }
-
-            // Para otros errores no recuperables, no lanzamos excepción HTTP para no reintentar a ciegas (depende del gusto, aquí marcamos como error permanente)
-            throw new Exception("Error persistente de Gemini (Status $status)");
+            throw new CatalogParseException($e->getMessage(), $e->rawResponse);
         }
 
-        $data = $response->json();
-
-        // Validar JSON
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $rawBody = substr($response->body(), 0, 1000);
-            Log::error('Respuesta de Gemini no es un JSON válido a nivel principal.', [
-                'catalog_id' => $this->catalogId,
-                'raw' => $rawBody
-            ]);
-            throw new CatalogParseException("Respuesta JSON inválida de Gemini.", $rawBody);
-        }
-
-        $jsonStr = $data['candidates'][0]['content']['parts'][0]['text'] ?? '[]';
-        $products = json_decode($jsonStr, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $rawPayload = substr($jsonStr, 0, 1000);
-            Log::error('El contenido extraído por Gemini no es un JSON válido.', [
-                'catalog_id' => $this->catalogId,
-                'raw' => $rawPayload
-            ]);
-            throw new CatalogParseException("El contenido extraído no es un JSON válido.", $rawPayload);
-        }
-
-        if (!is_array($products)) {
-            $rawPayload = substr($jsonStr, 0, 1000);
-            Log::error('El contenido extraído por Gemini no es un array.', [
-                'catalog_id' => $this->catalogId,
-                'raw' => $rawPayload
-            ]);
-            throw new CatalogParseException("El contenido extraído no es un array.", $rawPayload);
-        }
-
-        Log::info('Productos extraídos por Gemini con éxito.', [
+        Log::info('Productos extraídos por IA con éxito.', [
             'catalog_id' => $this->catalogId,
             'count' => count($products)
         ]);
 
         if ($this->catalogId && count($products) > 0) {
-            $this->persistProducts($products);
+            $this->persistProducts($products, $aiProvider);
+        }
+
+        if ($this->catalogId && empty($this->batchId) && ($this->batch() === null)) {
+            $total = DB::table('products')->where('catalog_id', $this->catalogId)->count();
+            \App\Models\Catalog::where('id', $this->catalogId)->update([
+                'status' => 'completed',
+                'total_products' => $total,
+            ]);
         }
     }
 
     /**
-     * Persiste los productos en la base de datos (Upsert logic replicada)
+     * Persiste los productos en la base de datos (Upsert logic por supplier_id y codigo)
      */
-    private function persistProducts(array $products): void
+    private function persistProducts(array $products, AiProviderInterface $aiProvider): void
     {
-        Log::info('Persistiendo productos de Gemini en la base de datos.', [
+        Log::info('Persistiendo productos de IA en la base de datos.', [
             'catalog_id' => $this->catalogId,
             'count' => count($products)
         ]);
 
-        DB::transaction(function () use ($products) {
+        DB::transaction(function () use ($products, $aiProvider) {
             $now = now();
+            $catalog = $this->catalogId ? Catalog::find($this->catalogId) : null;
+            $supplierId = $catalog?->supplier_id ?? \App\Models\Supplier::getGenericSupplierId();
+
             $uniqueProducts = [];
             $logsToInsert = [];
             
@@ -233,17 +141,29 @@ Ignora texto legal, basura OCR o encabezados que no sean productos.";
             }
 
             $codigos = array_keys($uniqueProducts);
-            $existingCodigos = DB::table('products')->whereIn('codigo', $codigos)->pluck('codigo')->toArray();
+            $existingCodigos = DB::table('products')
+                ->where('supplier_id', $supplierId)
+                ->whereIn('codigo', $codigos)
+                ->pluck('codigo')
+                ->toArray();
             $existingCodigosDict = array_flip($existingCodigos);
 
             $insertData = [];
-            
+            $parserVersion = config('services.ai.parser_version', 'v1');
+
             foreach ($uniqueProducts as $codigo => $product) {
                 $isUpdate = isset($existingCodigosDict[$codigo]);
                 
                 $insertData[] = array_merge($product, [
+                    'supplier_id' => $supplierId,
                     'catalog_id' => $this->catalogId,
+                    'page_number' => $this->pageNumber,
                     'is_active' => true,
+                    'extraction_method' => 'ai',
+                    'ai_provider' => $aiProvider->getProviderName(),
+                    'ai_model' => $aiProvider->getModelName(),
+                    'prompt_version' => $aiProvider->getPromptVersion(),
+                    'parser_version' => $parserVersion,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
@@ -262,8 +182,8 @@ Ignora texto legal, basura OCR o encabezados que no sean productos.";
             foreach (array_chunk($insertData, 500) as $chunk) {
                 DB::table('products')->upsert(
                     $chunk, 
-                    ['codigo'], 
-                    ['precio_divisa', 'precio_bs', 'nombre', 'catalog_id', 'is_active', 'updated_at', 'garantia', 'condiciones', 'tiempo_entrega', 'descripcion'] 
+                    ['supplier_id', 'codigo'], 
+                    ['precio_divisa', 'precio_bs', 'nombre', 'catalog_id', 'is_active', 'updated_at', 'garantia', 'condiciones', 'tiempo_entrega', 'descripcion', 'extraction_method', 'ai_provider', 'ai_model', 'prompt_version', 'parser_version', 'page_number'] 
                 );
             }
 
@@ -271,5 +191,23 @@ Ignora texto legal, basura OCR o encabezados que no sean productos.";
                 DB::table('catalog_logs')->insert($logChunk);
             }
         });
+    }
+
+    /**
+     * Handle a job failure.
+     */
+    public function failed(?\Throwable $exception): void
+    {
+        Log::error('ParseAiCatalogChunkJob falló definitivamente.', [
+            'catalog_id' => $this->catalogId,
+            'page_number' => $this->pageNumber,
+            'error' => $exception?->getMessage()
+        ]);
+
+        if ($this->catalogId && empty($this->batchId) && ($this->batch() === null)) {
+            \App\Models\Catalog::where('id', $this->catalogId)->update([
+                'status' => 'failed',
+            ]);
+        }
     }
 }

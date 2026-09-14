@@ -15,7 +15,8 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // Proveedor genérico por defecto para catálogos huérfanos
+        \App\Models\Supplier::getGenericSupplier();
 
         User::factory()->create([
             'name' => 'Test User',

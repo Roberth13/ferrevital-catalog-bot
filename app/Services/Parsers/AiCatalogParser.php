@@ -8,7 +8,12 @@ use RuntimeException;
 
 class AiCatalogParser implements CatalogParserInterface
 {
-    public function parse(string $normalText, string $redText = '', ?int $catalogId = null): array
+    /**
+     * Divide el texto en chunks y genera los Jobs correspondientes sin despacharlos.
+     *
+     * @return array<int, \App\Jobs\ParseAiCatalogChunkJob>
+     */
+    public function createJobs(string $normalText, string $redText = '', ?int $catalogId = null, ?int $pageNumber = null): array
     {
         $text = trim($normalText . "\n" . $redText);
         
@@ -39,17 +44,51 @@ class AiCatalogParser implements CatalogParserInterface
             $chunks[] = $text;
         }
 
+        $jobs = [];
         foreach ($chunks as $index => $chunk) {
-            Log::info('Despachando chunk para AiCatalogParser.', [
+            Log::info('Preparando chunk para AiCatalogParser.', [
                 'catalog_id' => $catalogId,
+                'page_number' => $pageNumber,
                 'chunk_index' => $index,
                 'chunk_size' => strlen($chunk)
             ]);
 
-            \App\Jobs\ParseAiCatalogChunkJob::dispatch($chunk, $catalogId);
+            $jobs[] = new \App\Jobs\ParseAiCatalogChunkJob($chunk, $catalogId, $pageNumber);
         }
 
-        // Retorna vacío porque el procesamiento se hará de forma asíncrona en el Job
+        return $jobs;
+    }
+
+    public function parse(string $normalText, string $redText = '', ?int $catalogId = null, ?int $pageNumber = null): array
+    {
+        $jobs = $this->createJobs($normalText, $redText, $catalogId, $pageNumber);
+
+        if (empty($jobs)) {
+            return [];
+        }
+
+        if ($catalogId) {
+            \Illuminate\Support\Facades\Bus::batch($jobs)
+                ->name('catalog-' . $catalogId)
+                ->then(function (\Illuminate\Bus\Batch $batch) use ($catalogId) {
+                    $total = \Illuminate\Support\Facades\DB::table('products')->where('catalog_id', $catalogId)->count();
+                    \App\Models\Catalog::where('id', $catalogId)->update([
+                        'status' => 'completed',
+                        'total_products' => $total,
+                    ]);
+                })
+                ->catch(function (\Illuminate\Bus\Batch $batch, \Throwable $e) use ($catalogId) {
+                    \App\Models\Catalog::where('id', $catalogId)->update([
+                        'status' => 'failed',
+                    ]);
+                })
+                ->dispatch();
+        } else {
+            foreach ($jobs as $job) {
+                dispatch($job);
+            }
+        }
+
         return [];
     }
 }

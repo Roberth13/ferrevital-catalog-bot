@@ -26,6 +26,29 @@
             margin: 0 auto;
         }
 
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 500;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-main);
+        }
+
+        .form-control {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+            background: var(--bg-color);
+            color: var(--text-main);
+            font-size: 0.95rem;
+        }
+
         .drop-zone {
             border: 2px dashed var(--border-color);
             border-radius: 0.75rem;
@@ -134,6 +157,7 @@
 @section('content')
     <div class="top-bar">
         <h1 style="text-align: center;">Subir Nuevo Catálogo</h1>
+        <p style="text-align: center; color: var(--text-muted); margin: 0.5rem 0 0;">Selecciona el proveedor y el archivo PDF para su extracción automática.</p>
     </div>
 
     @if(session('success'))
@@ -156,11 +180,27 @@
         <form action="{{ route('catalogs.store') }}" method="POST" enctype="multipart/form-data" id="uploadForm">
             @csrf
             
+            <div class="form-group">
+                <label for="supplier_id">Proveedor del Catálogo</label>
+                <select name="supplier_id" id="supplier_id" class="form-control">
+                    <option value="">-- Proveedor Genérico (por defecto) --</option>
+                    @foreach($suppliers as $supplier)
+                        <option value="{{ $supplier->id }}" {{ old('supplier_id') == $supplier->id ? 'selected' : '' }}>
+                            {{ $supplier->name }} ({{ $supplier->slug }})
+                        </option>
+                    @endforeach
+                </select>
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    ¿No encuentras el proveedor? Puedes <a href="{{ route('suppliers.index') }}" style="color: var(--primary);">crearlo aquí</a>.
+                </div>
+            </div>
+
             <div class="drop-zone" id="dropZone" onclick="document.getElementById('pdf').click()">
                 <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <p>Arrastra tu archivo PDF aquí o <span>haz clic para explorar</span></p>
+                <p style="font-size: 0.8rem; margin-top: 0.5rem; opacity: 0.7;">Formatos aceptados: .pdf (Máx. 150 MB)</p>
             </div>
             <input type="file" name="pdf" id="pdf" accept="application/pdf" required>
 
@@ -183,7 +223,7 @@
     <!-- Loading Overlay -->
     <div id="loadingOverlay">
         <div class="spinner"></div>
-        <h2 style="margin: 0; font-weight: 600;">Subiendo archivo...</h2>
+        <h2 style="margin: 0; font-weight: 600;">Subiendo archivo y encolando proceso...</h2>
         <p style="margin-top: 0.5rem; opacity: 0.8;">Por favor no cierres esta ventana.</p>
     </div>
 @endsection
@@ -235,7 +275,7 @@
         function updateFileInfo() {
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
-                if (file.type === 'application/pdf') {
+                if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
                     fileNameText.textContent = file.name;
                     fileInfo.style.display = 'flex';
                     dropZone.style.display = 'none';
@@ -249,7 +289,7 @@
 
         // Remove File
         removeFileBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // Evitar click en dropzone
+            e.stopPropagation();
             resetFile();
         });
 

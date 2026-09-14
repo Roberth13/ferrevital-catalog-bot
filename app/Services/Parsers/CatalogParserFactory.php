@@ -24,7 +24,7 @@ class CatalogParserFactory
         }
 
         if (stripos($text, 'JADEVER') !== false) {
-            return new AiCatalogParser();
+            return new JadeverParser();
         }
 
         if (stripos($text, 'WADFOW') !== false) {
@@ -40,7 +40,7 @@ class CatalogParserFactory
         }
 
         if (stripos($text, 'DONG CHENG') !== false || stripos($text, 'DONGCHENG') !== false) {
-            return new AiCatalogParser();
+            return new DongChengParser();
         }
 
         if (stripos($text, 'RONIX') !== false) {
