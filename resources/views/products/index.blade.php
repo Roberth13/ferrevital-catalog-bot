@@ -162,6 +162,7 @@
                             <span class="block text-xs font-semibold text-gray-500 uppercase">2. Precios</span>
                             <div>USD: <strong class="text-indigo-600" id="m_precio_divisa"></strong></div>
                             <div>Bs: <strong class="text-gray-800" id="m_precio_bs"></strong></div>
+                            <div class="mt-1 text-xs text-gray-600">Otros: <span id="m_otros_precios" class="font-medium text-gray-800"></span></div>
                         </div>
 
                         <div class="bg-gray-50 p-3 rounded">
@@ -210,6 +211,7 @@
                     document.getElementById('m_variante').innerText = data.variante ? `Variante: ${data.variante}` : '';
                     document.getElementById('m_precio_divisa').innerText = data.precio_divisa !== '—' ? `$${data.precio_divisa}` : '—';
                     document.getElementById('m_precio_bs').innerText = data.precio_bs !== '—' ? `Bs. ${data.precio_bs}` : '—';
+                    document.getElementById('m_otros_precios').innerText = data.otros_precios;
                     document.getElementById('m_garantia').innerText = data.garantia;
                     document.getElementById('m_tiempo_entrega').innerText = data.tiempo_entrega;
                     document.getElementById('m_condiciones').innerText = data.condiciones_proveedor;

@@ -15,8 +15,8 @@ class Producto(BaseModel):
     codigo: Optional[str] = Field(None, description="Codigo/modelo exacto impreso, ej. DCPL208, DZJ02-13. null si no aparece.")
     variante: Optional[str] = Field(None, description="SOLO la variante/tipo que el catalogo imprime como 'TIPO X', ej. 'TIPO EM', 'TIPO ADM', 'TIPO E'. No es voltaje, potencia ni medida (eso va en nombre o descripcion). null si no hay.")
     nombre: str = Field(..., description="Nombre comercial del producto, sin repetir el codigo/modelo (que va en 'codigo'), ej. 'TALADRO DE IMPACTO ELECTRICO 500W (110 V)'.")
-    precio_bs: Optional[float] = Field(None, description="Precio en bolivares si esta impreso explicitamente en Bs. null si no aparece.")
-    precio_divisa: Optional[float] = Field(None, description="Precio en divisa (numero tras 'REF:'). Coma decimal -> punto. null si no aparece.")
+    precio_divisa: Optional[float] = Field(None, description="Precio principal en dolares (numero tras 'Ref.', 'REF:', '$' o 'USD'). Coma decimal -> punto. null si no aparece.")
+    otros_precios: Optional[str] = Field(None, description="Cualquier otra columna de precio (BCV, mayor, detal, PVP, con IVA, etc.) como texto 'etiqueta: valor; etiqueta: valor', conservando la etiqueta tal como aparece. null si no hay.")
     descripcion_tecnica: Optional[str] = Field(None, description="Especificaciones tecnicas y caracteristicas, una por linea, en el texto original. No inventes ni resumas valores.")
     incluye: Optional[str] = Field(None, description="Contenido de la seccion 'QUE INCLUYE', tal cual. null si no hay.")
     garantia: Optional[str] = Field(None, description="Garantia impresa en la pagina o catalogo, ej. '1 Año de Garantia'. null si no aparece.")
@@ -33,7 +33,7 @@ PROMPT_GENERICO = """Eres un extractor de datos de catálogos y listas de precio
 Extrae CADA producto que tenga precio o ficha técnica. Reglas:
 - Un registro por cada combinación código + variante. Si el mismo modelo aparece con variantes o presentaciones distintas (tipo, color, voltaje, contenido del kit) y cada una tiene su propio precio, devuelve un registro por cada una.
 - Copia los valores tal como están impresos; no corrijas ni conviertas unidades.
-- Los precios pueden venir como "Ref.", "REF:", "$", "USD" o simplemente un número; los decimales suelen usar coma ("1.200,41" o "1200,41"). Devuelve números con punto decimal y sin separador de miles. Si hay dos precios (bolívares y divisa), sepáralos: precio_bs y precio_divisa. Si solo hay uno y no puedes saber la moneda, ponlo en precio_divisa y explica en notas.
+- precio_divisa es el precio principal en dólares (suele venir como Ref., REF:, $ o USD). Cualquier otra columna de precio (BCV, mayor, detal, PVP, con IVA, etc.) va en otros_precios como texto 'etiqueta: valor; etiqueta: valor', conservando la etiqueta tal como aparece. No calcules ni conviertas precios.
 - Si un campo NO está impreso, devuelve null. Nunca lo deduzcas ni lo inventes.
 - La garantía puede ser un aviso general de la página o del catálogo; aplícala a los productos a los que corresponda.
 - "incluye" es solo lo que el documento lista como contenido o accesorios incluidos. Las especificaciones van en descripcion_tecnica.
@@ -310,7 +310,7 @@ def main():
             "variante": variante,
             "nombre": item_dict.get("nombre") or "",
             "precio_divisa": item_dict.get("precio_divisa"),
-            "precio_bs": item_dict.get("precio_bs"),
+            "otros_precios": item_dict.get("otros_precios"),
             "descripcion_tecnica": item_dict.get("descripcion_tecnica"),
             "incluye": item_dict.get("incluye"),
             "garantia": item_dict.get("garantia"),

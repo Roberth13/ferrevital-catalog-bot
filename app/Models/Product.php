@@ -18,6 +18,7 @@ class Product extends Model
         'nombre',
         'precio_divisa',
         'precio_bs',
+        'otros_precios',
         'descripcion_tecnica',
         'incluye',
         'garantia',

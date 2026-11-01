@@ -55,6 +55,11 @@
                         </div>
 
                         <div>
+                            <label for="otros_precios" class="block text-sm font-medium text-gray-700">Otros Precios (ej. BCV, mayor, detal...)</label>
+                            <input type="text" name="otros_precios" id="otros_precios" value="{{ old('otros_precios', $product->otros_precios) }}" placeholder="etiqueta: valor; etiqueta: valor" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        </div>
+
+                        <div>
                             <label for="garantia" class="block text-sm font-medium text-gray-700">Garantía</label>
                             <input type="text" name="garantia" id="garantia" value="{{ old('garantia', $product->garantia) }}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                         </div>
