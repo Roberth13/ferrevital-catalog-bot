@@ -7,22 +7,41 @@
 
         <title>{{ config('app.name', 'Catálogos') }}</title>
 
-        <!-- Tailwind CSS CDN para renderizado garantizado sin node en el SO -->
+        <!-- Tailwind CSS CDN con paleta cálida y suave -->
         <script src="https://cdn.tailwindcss.com"></script>
         <script>
             tailwind.config = {
-                darkMode: 'class',
+                theme: {
+                    extend: {
+                        colors: {
+                            warm: {
+                                50: '#FAF8F5',
+                                100: '#F4EFEA',
+                                200: '#E8DED5',
+                                300: '#D5C4B5',
+                                600: '#8C6D58',
+                                700: '#6E5343',
+                                800: '#4A372D',
+                            },
+                            amberbrand: {
+                                500: '#D97706',
+                                600: '#B45309',
+                                700: '#92400E',
+                            }
+                        }
+                    }
+                }
             }
         </script>
     </head>
-    <body class="font-sans antialiased bg-gray-100 text-gray-900">
+    <body class="font-sans antialiased bg-[#FAF8F5] text-stone-800">
         <div class="min-h-screen">
             @include('layouts.navigation')
 
             <!-- Page Heading -->
             @isset($header)
-                <header class="bg-white shadow">
-                    <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+                <header class="bg-[#F4EFEA] border-b border-stone-200 shadow-sm">
+                    <div class="max-w-7xl mx-auto py-5 px-4 sm:px-6 lg:px-8">
                         {{ $header }}
                     </div>
                 </header>

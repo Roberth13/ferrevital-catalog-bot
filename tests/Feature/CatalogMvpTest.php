@@ -196,5 +196,43 @@ class CatalogMvpTest extends TestCase
         $this->assertNull($product->revisar_motivo);
         $this->assertEquals(25.00, (float) $product->precio_divisa);
     }
+
+    public function test_login_route_works_and_register_route_is_disabled(): void
+    {
+        // Ruta de login responde 200 y permite autenticarse
+        $responseLogin = $this->get('/login');
+        $responseLogin->assertStatus(200);
+
+        // Autenticación con credenciales del seeder
+        $responseAuth = $this->post('/login', [
+            'email' => 'empleado@example.com',
+            'password' => 'password',
+        ]);
+        $responseAuth->assertRedirect('/products');
+        $this->assertAuthenticated();
+
+        // La ruta de registro está eliminada / no disponible (404)
+        $this->post('/logout');
+        $responseRegister = $this->get('/register');
+        $responseRegister->assertStatus(404);
+    }
+
+    public function test_export_products_returns_valid_xlsx_file(): void
+    {
+        $empleado = User::where('email', 'empleado@example.com')->firstOrFail();
+        $supplier = Supplier::create(['name' => 'Supplier Export']);
+        Product::create([
+            'supplier_id' => $supplier->id,
+            'codigo' => 'XLSX-01',
+            'variante' => '',
+            'nombre' => 'Producto Exportación',
+            'precio_divisa' => 45.50,
+        ]);
+
+        $response = $this->actingAs($empleado)->get('/products/export');
+        $response->assertStatus(200);
+        $response->assertHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        $this->assertStringContainsString('.xlsx', $response->headers->get('Content-Disposition') ?? '');
+    }
 }
 

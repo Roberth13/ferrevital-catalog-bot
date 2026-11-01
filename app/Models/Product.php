@@ -17,7 +17,9 @@ class Product extends Model
         'variante',
         'nombre',
         'precio_divisa',
+        'precio_venta_usd',
         'precio_bs',
+        'precio_venta_bs',
         'otros_precios',
         'condiciones_proveedor',
         'descripcion_tecnica',
@@ -32,7 +34,9 @@ class Product extends Model
     {
         return [
             'precio_divisa' => 'decimal:2',
+            'precio_venta_usd' => 'decimal:2',
             'precio_bs' => 'decimal:2',
+            'precio_venta_bs' => 'decimal:2',
             'pagina' => 'integer',
             'revisar' => 'boolean',
         ];

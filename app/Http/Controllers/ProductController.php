@@ -4,8 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Supplier;
+use App\Services\SimpleXlsxExporter;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ProductController extends Controller
 {
@@ -14,11 +15,15 @@ class ProductController extends Controller
         $query = Product::with('supplier');
 
         if ($request->filled('q')) {
-            $q = trim($request->input('q'));
-            $query->where(function ($sub) use ($q) {
-                $sub->where('codigo', 'like', "%{$q}%")
-                    ->orWhere('nombre', 'like', "%{$q}%");
-            });
+            $words = array_filter(explode(' ', trim($request->input('q'))));
+            foreach ($words as $word) {
+                $query->where(function ($sub) use ($word) {
+                    $sub->where('codigo', 'like', "%{$word}%")
+                        ->orWhere('nombre', 'like', "%{$word}%")
+                        ->orWhere('descripcion_tecnica', 'like', "%{$word}%")
+                        ->orWhere('variante', 'like', "%{$word}%");
+                });
+            }
         }
 
         if ($request->filled('supplier_id')) {
@@ -45,6 +50,8 @@ class ProductController extends Controller
             'nombre' => $product->nombre,
             'precio_bs' => $product->precio_bs ? number_format($product->precio_bs, 2, ',', '.') : '—',
             'precio_divisa' => $product->precio_divisa ? number_format($product->precio_divisa, 2, '.', '') : '—',
+            'precio_venta_usd' => $product->precio_venta_usd ? number_format($product->precio_venta_usd, 2, '.', '') : '—',
+            'precio_venta_bs' => $product->precio_venta_bs ? number_format($product->precio_venta_bs, 2, ',', '.') : '—',
             'otros_precios' => $product->otros_precios ?: '—',
             'descripcion_tecnica' => $product->descripcion_tecnica ?: '—',
             'garantia' => $product->garantia ?: ($product->supplier?->garantia_default ?: '—'),
@@ -70,7 +77,9 @@ class ProductController extends Controller
             'variante' => ['nullable', 'string', 'max:255'],
             'nombre' => ['required', 'string', 'max:500'],
             'precio_divisa' => ['nullable', 'numeric'],
+            'precio_venta_usd' => ['nullable', 'numeric'],
             'precio_bs' => ['nullable', 'numeric'],
+            'precio_venta_bs' => ['nullable', 'numeric'],
             'otros_precios' => ['nullable', 'string'],
             'condiciones_proveedor' => ['nullable', 'string'],
             'descripcion_tecnica' => ['nullable', 'string'],
@@ -88,16 +97,20 @@ class ProductController extends Controller
         return redirect()->route('products.index')->with('status', 'Producto actualizado correctamente.');
     }
 
-    public function exportCsv(Request $request): StreamedResponse
+    public function exportXlsx(Request $request): BinaryFileResponse
     {
         $query = Product::with('supplier');
 
         if ($request->filled('q')) {
-            $q = trim($request->input('q'));
-            $query->where(function ($sub) use ($q) {
-                $sub->where('codigo', 'like', "%{$q}%")
-                    ->orWhere('nombre', 'like', "%{$q}%");
-            });
+            $words = array_filter(explode(' ', trim($request->input('q'))));
+            foreach ($words as $word) {
+                $query->where(function ($sub) use ($word) {
+                    $sub->where('codigo', 'like', "%{$word}%")
+                        ->orWhere('nombre', 'like', "%{$word}%")
+                        ->orWhere('descripcion_tecnica', 'like', "%{$word}%")
+                        ->orWhere('variante', 'like', "%{$word}%");
+                });
+            }
         }
 
         if ($request->filled('supplier_id')) {
@@ -109,61 +122,54 @@ class ProductController extends Controller
         }
 
         $headers = [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="productos_' . date('Y-m-d_His') . '.csv"',
-            'Pragma' => 'no-cache',
-            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
-            'Expires' => '0',
+            'ID',
+            'Proveedor',
+            'Código',
+            'Variante',
+            'Nombre',
+            'Costo USD',
+            'PVP Venta USD',
+            'Costo Bs',
+            'PVP Venta Bs',
+            'Otros Precios',
+            'Condiciones Producto',
+            'Garantía',
+            'Página',
+            'Revisar',
+            'Motivo Revisar',
+            'Descripción Técnica',
+            'Incluye',
         ];
 
-        $callback = function () use ($query) {
-            $handle = fopen('php://output', 'w');
-            // BOM UTF-8 para Excel
-            fprintf($handle, chr(0xEF).chr(0xBB).chr(0xBF));
-
-            fputcsv($handle, [
-                'ID',
-                'Proveedor',
-                'Código',
-                'Variante',
-                'Nombre',
-                'Precio Divisa (USD)',
-                'Precio Bs',
-                'Otros Precios',
-                'Condiciones Producto',
-                'Garantía',
-                'Página',
-                'Revisar',
-                'Motivo Revisar',
-                'Descripción Técnica',
-                'Incluye',
-            ]);
-
-            $query->chunk(500, function ($batch) use ($handle) {
-                foreach ($batch as $p) {
-                    fputcsv($handle, [
-                        $p->id,
-                        $p->supplier?->name ?? '',
-                        $p->codigo,
-                        $p->variante,
-                        $p->nombre,
-                        $p->precio_divisa,
-                        $p->precio_bs,
-                        $p->otros_precios,
-                        $p->condiciones_proveedor,
-                        $p->garantia,
-                        $p->pagina,
-                        $p->revisar ? 'SI' : 'NO',
-                        $p->revisar_motivo,
-                        $p->descripcion_tecnica,
-                        $p->incluye,
-                    ]);
-                }
-            });
-
-            fclose($handle);
+        $generator = function () use ($query) {
+            foreach ($query->lazy(500) as $p) {
+                yield [
+                    $p->id,
+                    $p->supplier?->name ?? '',
+                    $p->codigo,
+                    $p->variante,
+                    $p->nombre,
+                    $p->precio_divisa,
+                    $p->precio_venta_usd,
+                    $p->precio_bs,
+                    $p->precio_venta_bs,
+                    $p->otros_precios,
+                    $p->condiciones_proveedor,
+                    $p->garantia,
+                    $p->pagina,
+                    $p->revisar ? 'SI' : 'NO',
+                    $p->revisar_motivo,
+                    $p->descripcion_tecnica,
+                    $p->incluye,
+                ];
+            }
         };
 
-        return response()->stream($callback, 200, $headers);
+        $tmpPath = SimpleXlsxExporter::create($headers, $generator());
+        $filename = 'productos_' . date('Y-m-d_His') . '.xlsx';
+
+        return response()->download($tmpPath, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
     }
 }

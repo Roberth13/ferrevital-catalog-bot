@@ -8,6 +8,9 @@ import tempfile
 import time
 from typing import List, Optional, Tuple, Dict, Any
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------- esquema ---
@@ -31,11 +34,13 @@ class Resultado(BaseModel):
 
 PROMPT_GENERICO = """Eres un extractor de datos de catálogos y listas de precios de herramientas y ferretería. Recibes páginas de un documento, cada una como texto o como imagen, etiquetadas con su número de página.
 
+Cada página puede venir como imagen y como texto. Usa la imagen para saber qué precio y qué código pertenecen a cada producto (distribución en la página) y el texto para copiar dígitos y códigos exactos. Si discrepan sobre qué precio corresponde a qué producto, confía en la imagen.
+
 Extrae CADA producto que tenga precio o ficha técnica. Reglas:
 - Un registro por cada combinación código + variante. Si el mismo modelo aparece con variantes o presentaciones distintas (tipo, color, voltaje, contenido del kit) y cada una tiene su propio precio, devuelve un registro por cada una.
 - Copia los valores tal como están impresos; no corrijas ni conviertas unidades.
 - Si cada producto trae más de un identificador, usa como codigo el que no se repita entre productos del documento. Si todos son únicos, usa el que esté rotulado como CÓDIGO, SKU, REF o MODELO, en ese orden de preferencia. El otro identificador va al inicio de descripcion_tecnica como 'Código alterno: X'.
-- precio_divisa es el precio principal en dólares (suele venir como Ref., REF:, $ o USD). Cualquier otra columna de precio (BCV, mayor, detal, PVP, con IVA, etc.) va en otros_precios como texto 'etiqueta: valor; etiqueta: valor', conservando la etiqueta tal como aparece. No calcules ni conviertas precios.
+- precio_divisa es el precio de referencia en dólares: la columna o etiqueta rotulada Ref, REF, Ref. o Referencia. Si el documento no tiene ninguna con esa etiqueta, es su único o principal precio en dólares (Precio, $, USD). Cualquier otra columna de precio (BCV, mayor, detal, PVP, con IVA, etc.) va en otros_precios con su etiqueta. No dejes precio_divisa vacío si el documento muestra algún precio en dólares; si dudas, elige el rotulado Ref y explícalo en notas. No calcules ni conviertas precios.
 - condiciones_proveedor es pedido mínimo, empaque o unidad de venta, y política de venta del proveedor, como texto 'etiqueta: valor; etiqueta: valor' con la etiqueta tal como aparece (ej. 'Min: 10 PZA; EMP.MAYOR: 2000; Política Venta: 50 UNIDADES'). otros_precios es SOLO para columnas de precio. No extraigas existencias ni stock: ignóralos.
 - Si un campo NO está impreso, devuelve null. Nunca lo deduzcas ni lo inventes.
 - La garantía puede ser un aviso general de la página o del catálogo; aplícala a los productos a los que corresponda.
@@ -102,12 +107,11 @@ def call_gemini_batch(model: str, items: List[Dict[str, Any]]) -> Tuple[dict, in
     for item in items:
         pnum = item["num"]
         parts.append(f"--- Página {pnum} ---")
-        if item["type"] == "text":
+        with open(item["image_path"], "rb") as f:
+            img_bytes = f.read()
+        parts.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
+        if item.get("content"):
             parts.append(f"[Texto extraído de la Página {pnum}]:\n{item['content']}")
-        else:
-            with open(item["image_path"], "rb") as f:
-                img_bytes = f.read()
-            parts.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
 
     parts.append(PROMPT_GENERICO)
 
@@ -181,7 +185,7 @@ def main():
     parser.add_argument("--out", required=True, help="Ruta de salida JSON")
     parser.add_argument("--first", type=int, default=None, help="Página inicial (1-indexed)")
     parser.add_argument("--last", type=int, default=None, help="Página final (1-indexed)")
-    parser.add_argument("--input", choices=["auto", "text", "image"], default="auto", help="Modo de entrada por página")
+    parser.add_argument("--input", choices=["both", "image"], default="both", help="Modo de entrada por página (por defecto: both)")
 
     args = parser.parse_args()
 
@@ -219,45 +223,30 @@ def main():
     processed_pages_count = last_page - first_page + 1
 
     count_image = 0
-    count_text = 0
+    count_both = 0
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         prepared_pages = []
-        page_obj_map = {}
         for pno in range(first_page, last_page + 1):
             page = doc[pno - 1]
-            page_obj_map[pno] = page
             extracted_text = (page.get_text() or "").strip()
-            use_mode = args.input
+            img_path = os.path.join(tmp_dir, f"page_{pno:04d}.jpg")
+            render_page_image(page, img_path)
 
-            if use_mode == "auto":
-                if len(extracted_text) >= 150:
-                    use_mode = "text"
-                else:
-                    use_mode = "image"
-
-            if use_mode == "text":
-                count_text += 1
-                prepared_pages.append({
-                    "num": pno,
-                    "type": "text",
-                    "content": extracted_text,
-                    "image_path": None
-                })
+            has_text = len(extracted_text) > 0 and args.input == "both"
+            if has_text:
+                count_both += 1
             else:
                 count_image += 1
-                img_path = os.path.join(tmp_dir, f"page_{pno:04d}.jpg")
-                render_page_image(page, img_path)
-                prepared_pages.append({
-                    "num": pno,
-                    "type": "image",
-                    "content": None,
-                    "image_path": img_path
-                })
+
+            prepared_pages.append({
+                "num": pno,
+                "content": extracted_text if has_text else None,
+                "image_path": img_path
+            })
 
         # Lotes de 4 páginas
         batch_size = 4
-        fallback_pages_retried = 0
 
         for i in range(0, len(prepared_pages), batch_size):
             batch = prepared_pages[i:i + batch_size]
@@ -272,61 +261,12 @@ def main():
                 advertencias.append(f"Error en lote de páginas {nums}: {str(e)[:200]}")
                 raise e
 
-            # Fallback genérico: si una página procesada como texto produce algún producto sin precio_divisa,
-            # vuelve a procesar ESA página como imagen y reemplaza los productos de esa página con el resultado de la imagen.
-            pages_by_num = {p["num"]: p for p in batch}
-            prods_by_page = {}
-            for prod in batch_products:
-                p_dict = prod if isinstance(prod, dict) else prod.model_dump()
-                pno = p_dict.get("pagina")
-                prods_by_page.setdefault(pno, []).append(prod)
-
-            final_batch_products = []
-            for item in batch:
-                pno = item["num"]
-                page_prods = prods_by_page.get(pno, [])
-
-                # Verificar si era texto y algún producto no tiene precio_divisa
-                has_missing_price = False
-                if item["type"] == "text":
-                    for prod in page_prods:
-                        p_dict = prod if isinstance(prod, dict) else prod.model_dump()
-                        if p_dict.get("precio_divisa") is None:
-                            has_missing_price = True
-                            break
-
-                if item["type"] == "text" and has_missing_price:
-                    sys.stderr.write(f"Fallback genérico: Página {pno} (texto) tiene productos sin precio_divisa. Reintentando como imagen...\n")
-                    fallback_pages_retried += 1
-                    time.sleep(2)
-                    img_path = os.path.join(tmp_dir, f"fallback_page_{pno:04d}.jpg")
-                    render_page_image(page_obj_map[pno], img_path)
-                    fallback_item = [{
-                        "num": pno,
-                        "type": "image",
-                        "content": None,
-                        "image_path": img_path
-                    }]
-                    try:
-                        fb_prods, fb_tin, fb_tout = process_batch(model, fallback_item)
-                        tot_in += fb_tin
-                        tot_out += fb_tout
-                        final_batch_products.extend(fb_prods)
-                    except Exception as fb_err:
-                        sys.stderr.write(f"Error en fallback de imagen para página {pno}: {fb_err}\n")
-                        final_batch_products.extend(page_prods)
-                else:
-                    final_batch_products.extend(page_prods)
-
-            all_raw_products.extend(final_batch_products)
+            all_raw_products.extend(batch_products)
 
             if i + batch_size < len(prepared_pages):
                 time.sleep(2)
 
         doc.close()
-
-        if fallback_pages_retried > 0:
-            advertencias.append(f"Se reintentaron {fallback_pages_retried} página(s) con fallback de texto a imagen por falta de precio_divisa.")
 
     # Post-procesamiento
     # Regla 5: Si (codigo, variante) aparece mas de una vez, conserva el primero y marca revisar con "duplicado en el catálogo"
@@ -387,15 +327,15 @@ def main():
         "tokens_out": tot_out,
         "advertencias": advertencias,
         "modo_paginas": {
-            "texto": count_text,
-            "imagen": count_image
+            "imagen": count_image,
+            "both": count_both
         }
     }
 
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(output_data, f, ensure_ascii=False, indent=2)
 
-    sys.stderr.write(f"Completado exitosamente: {len(deduped_products)} productos extraídos de {processed_pages_count} páginas. Costo: ${cost_usd:.4f}. Modo: {count_text} texto, {count_image} imagen.\n")
+    sys.stderr.write(f"Completado exitosamente: {len(deduped_products)} productos extraídos de {processed_pages_count} páginas. Costo: ${cost_usd:.4f}. Modo: {count_image} imagen, {count_both} both.\n")
     sys.exit(0)
 
 
