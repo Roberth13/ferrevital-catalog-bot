@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Supplier;
+use App\Services\AiProductRanker;
 use App\Services\SimpleXlsxExporter;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -34,10 +35,41 @@ class ProductController extends Controller
             $query->where('revisar', true);
         }
 
-        $products = $query->orderBy('id', 'desc')->paginate(50)->withQueryString();
+        $aiRankingMap = [];
+        $aiRankRequested = $request->boolean('ai_rank') && $request->filled('q');
+
+        if ($aiRankRequested) {
+            $matchedProducts = $query->take(30)->get();
+            $ranker = new AiProductRanker();
+            $rankedItems = $ranker->rank($matchedProducts, (string) $request->input('q'));
+
+            foreach ($rankedItems as $position => $item) {
+                $aiRankingMap[$item['id']] = [
+                    'posicion' => $position + 1,
+                    'motivo' => $item['motivo'],
+                ];
+            }
+
+            // Ordenar la colección según el ranking de IA
+            $sorted = $matchedProducts->sortBy(function ($p) use ($aiRankingMap) {
+                return $aiRankingMap[$p->id]['posicion'] ?? 999;
+            })->values();
+
+            // Paginador manual para mantener compatibilidad
+            $products = new \Illuminate\Pagination\LengthAwarePaginator(
+                $sorted,
+                $sorted->count(),
+                50,
+                1,
+                ['path' => $request->url(), 'query' => $request->query()]
+            );
+        } else {
+            $products = $query->orderBy('id', 'desc')->paginate(50)->withQueryString();
+        }
+
         $suppliers = Supplier::orderBy('name')->get();
 
-        return view('products.index', compact('products', 'suppliers'));
+        return view('products.index', compact('products', 'suppliers', 'aiRankingMap', 'aiRankRequested'));
     }
 
     public function show(Product $product)

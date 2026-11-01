@@ -57,9 +57,12 @@
                         </label>
                     </div>
 
-                    <div class="flex space-x-2">
+                    <div class="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-1">
                         <button type="submit" class="flex-1 inline-flex justify-center items-center px-4 py-2.5 bg-amber-600 border border-transparent rounded-lg font-semibold text-xs text-white uppercase tracking-wider hover:bg-amber-700 transition">
                             Buscar
+                        </button>
+                        <button type="submit" name="ai_rank" value="1" title="Buscar y clasificar por mejor calidad/precio usando IA" class="inline-flex justify-center items-center px-3 py-2.5 bg-gradient-to-r from-amber-700 to-amber-900 border border-amber-800 rounded-lg font-semibold text-xs text-white uppercase tracking-wider hover:from-amber-800 hover:to-stone-900 shadow-2xs transition">
+                            ⚡ Recomendar IA
                         </button>
                         <a href="{{ route('products.index') }}" class="inline-flex items-center px-3 py-2.5 bg-stone-100 border border-stone-200 rounded-lg font-medium text-xs text-stone-700 hover:bg-stone-200 transition">
                             Limpiar
@@ -69,11 +72,31 @@
             </div>
 
             <!-- Tabla de Productos -->
+            @if(!empty($aiRankRequested))
+                <div class="mb-4 p-4 rounded-xl bg-amber-50/80 border border-amber-200/80 shadow-2xs flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-xl">🤖</span>
+                        <div>
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-amber-900">Recomendación de Inteligencia Artificial Activa</h4>
+                            <p class="text-xs text-amber-800">
+                                Clasificación optimizada por calidad técnica y precio para la búsqueda <strong>"{{ request('q') }}"</strong>.
+                            </p>
+                        </div>
+                    </div>
+                    <a href="{{ request()->fullUrlWithQuery(['ai_rank' => null]) }}" class="text-xs font-semibold text-amber-900 hover:text-amber-950 underline">
+                        Quitar IA
+                    </a>
+                </div>
+            @endif
+
             <div id="tableContainer" class="bg-white rounded-xl shadow-xs border border-stone-200 overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-stone-200">
                         <thead class="bg-[#FBF9F7]">
                             <tr>
+                                @if(!empty($aiRankRequested))
+                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-amber-900 uppercase tracking-wider">Top IA</th>
+                                @endif
                                 <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">Proveedor</th>
                                 <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">Código</th>
                                 <th class="px-5 py-3.5 text-left text-xs font-semibold text-stone-500 uppercase tracking-wider">Variante</th>
@@ -89,7 +112,27 @@
                         </thead>
                         <tbody class="bg-white divide-y divide-stone-100">
                             @forelse($products as $product)
-                                <tr class="hover:bg-[#FAF8F5] transition-colors cursor-pointer" onclick="openProductModal({{ $product->id }})">
+                                @php
+                                    $aiInfo = (!empty($aiRankingMap) && isset($aiRankingMap[$product->id])) ? $aiRankingMap[$product->id] : null;
+                                @endphp
+                                <tr class="hover:bg-[#FAF8F5] transition-colors cursor-pointer {{ $aiInfo && $aiInfo['posicion'] === 1 ? 'bg-amber-50/40 border-l-4 border-amber-600' : '' }}" onclick="openProductModal({{ $product->id }})">
+                                    @if(!empty($aiRankRequested))
+                                        <td class="px-5 py-3.5 whitespace-nowrap text-sm">
+                                            @if($aiInfo)
+                                                @if($aiInfo['posicion'] === 1)
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-600 text-white shadow-2xs" title="{{ $aiInfo['motivo'] }}">
+                                                        ★ Mejor Opción
+                                                    </span>
+                                                @else
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-stone-100 text-stone-700 border border-stone-200" title="{{ $aiInfo['motivo'] }}">
+                                                        #{{ $aiInfo['posicion'] }}
+                                                    </span>
+                                                @endif
+                                            @else
+                                                <span class="text-stone-300 text-xs">—</span>
+                                            @endif
+                                        </td>
+                                    @endif
                                     <td class="px-5 py-3.5 whitespace-nowrap text-sm font-semibold text-stone-800">
                                         {{ $product->supplier?->name }}
                                     </td>
@@ -99,8 +142,13 @@
                                     <td class="px-5 py-3.5 whitespace-nowrap text-sm text-stone-500">
                                         {{ $product->variante ?: '—' }}
                                     </td>
-                                    <td class="px-5 py-3.5 text-sm text-stone-800 max-w-xs truncate" title="{{ $product->nombre }}">
-                                        {{ $product->nombre }}
+                                    <td class="px-5 py-3.5 text-sm text-stone-800 max-w-xs" title="{{ $product->nombre }}">
+                                        <div class="truncate font-medium">{{ $product->nombre }}</div>
+                                        @if($aiInfo && !empty($aiInfo['motivo']))
+                                            <div class="mt-0.5 text-xs text-amber-800 italic bg-amber-50/70 p-1 rounded border border-amber-200/50">
+                                                💡 {{ $aiInfo['motivo'] }}
+                                            </div>
+                                        @endif
                                     </td>
                                     <td class="px-5 py-3.5 whitespace-nowrap text-sm text-stone-600">
                                         {{ $product->precio_divisa ? '$' . number_format($product->precio_divisa, 2) : '—' }}
@@ -138,7 +186,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="{{ Auth::user()->isAdmin() ? 8 : 7 }}" class="px-6 py-8 text-center text-stone-500 text-sm">
+                                    <td colspan="{{ (Auth::user()->isAdmin() ? 8 : 7) + (!empty($aiRankRequested) ? 1 : 0) }}" class="px-6 py-8 text-center text-stone-500 text-sm">
                                         No se encontraron productos con los criterios especificados.
                                     </td>
                                 </tr>
