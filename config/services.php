@@ -54,12 +54,14 @@ return [
         ],
     ],
 
-    'gemini' => [
-        'api_key' => env('GEMINI_API_KEY'),
-        'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
+    'python' => [
+        'bin' => env('PYTHON_BIN', 'python'),
     ],
 
-    'poppler' => [
-        'bin_path' => env('POPPLER_BIN_PATH', 'C:\Tools\poppler\Library\bin'),
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.5-flash-lite'),
+        'price_in' => env('GEMINI_PRICE_IN', 0.30),
+        'price_out' => env('GEMINI_PRICE_OUT', 2.50),
     ],
 ];

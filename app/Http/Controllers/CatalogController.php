@@ -2,98 +2,50 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ProcessCatalog;
 use App\Models\Catalog;
 use App\Models\Supplier;
-use App\Jobs\ProcessCatalogJob;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class CatalogController extends Controller
 {
     public function index()
     {
-        $catalogs = Catalog::with('supplier')
-            ->orderBy('created_at', 'desc')
-            ->paginate(15);
+        $catalogs = Catalog::with('supplier')->orderBy('id', 'desc')->get();
+        $hasActive = $catalogs->contains(fn ($c) => in_array($c->status, ['pendiente', 'procesando']));
 
-        return view('catalogs.index', compact('catalogs'));
-    }
-
-    public function create()
-    {
-        $suppliers = Supplier::orderBy('name', 'asc')->get();
-
-        return view('catalogs.create', compact('suppliers'));
+        return view('catalogs.index', compact('catalogs', 'hasActive'));
     }
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'supplier_id' => [
-                'nullable',
-                'exists:suppliers,id',
-            ],
-            'pdf' => [
-                'required',
-                'file',
-                'mimes:pdf',
-                'max:153600', // 150MB
-            ],
-        ], [
-            'pdf.required' => 'Debes seleccionar un archivo PDF.',
-            'pdf.file' => 'El archivo subido no es válido.',
-            'pdf.mimes' => 'El archivo debe ser un documento PDF válido.',
-            'pdf.max' => 'El archivo no debe exceder los 150 MB.',
-            'supplier_id.exists' => 'El proveedor seleccionado no existe.',
+        $request->validate([
+            'supplier_name' => ['required', 'string', 'max:255'],
+            'pdf' => ['required', 'file', 'mimes:pdf', 'max:204800'], // 200 MB
+            'first_page' => ['nullable', 'integer', 'min:1'],
+            'last_page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $file = $validated['pdf'];
+        $supplier = Supplier::firstOrCreate([
+            'name' => trim($request->input('supplier_name')),
+        ]);
 
-        // Validación adicional de tipo MIME seguro
-        $mime = $file->getMimeType();
-        $allowedMimes = ['application/pdf', 'application/x-pdf', 'application/acrobat', 'applications/pdf', 'text/pdf', 'text/x-pdf'];
-        if (!in_array(strtolower($mime), $allowedMimes, true)) {
-            return back()->withErrors(['pdf' => 'El archivo debe ser un documento PDF válido.'])->withInput();
-        }
-
-        $supplierId = !empty($validated['supplier_id'])
-            ? (int) $validated['supplier_id']
-            : Supplier::getGenericSupplierId();
-
-        $filename = $file->hashName();
-
-        $path = $file->storeAs(
-            'catalogs',
-            $filename,
-            'local'
-        );
+        $file = $request->file('pdf');
+        $originalName = $file->getClientOriginalName();
+        $path = $file->store('catalogs', 'local');
 
         $catalog = Catalog::create([
-            'supplier_id' => $supplierId,
-            'filename' => $path,
-            'original_filename' => $file->getClientOriginalName(),
-            'status' => 'pending',
-            'total_products' => 0,
+            'supplier_id' => $supplier->id,
+            'original_name' => $originalName,
+            'path' => $path,
+            'first_page' => $request->filled('first_page') ? (int) $request->input('first_page') : null,
+            'last_page' => $request->filled('last_page') ? (int) $request->input('last_page') : null,
+            'status' => 'pendiente',
         ]);
 
-        ProcessCatalogJob::dispatch($catalog);
+        ProcessCatalog::dispatch($catalog);
 
-        return redirect()
-            ->route('catalogs.show', $catalog)
-            ->with(
-                'success',
-                "Catálogo #{$catalog->id} subido correctamente. El procesamiento asíncrono ha iniciado."
-            );
-    }
-
-    public function show(Catalog $catalog)
-    {
-        $catalog->load('supplier');
-
-        $products = $catalog->products()
-            ->orderBy('page_number', 'asc')
-            ->orderBy('id', 'asc')
-            ->paginate(25);
-
-        return view('catalogs.show', compact('catalog', 'products'));
+        return redirect()->route('catalogs.index')->with('status', 'Catálogo subido. Extracción en cola iniciada.');
     }
 }

@@ -115,6 +115,18 @@ Ignora texto legal, basura OCR o encabezados que no sean productos.";
         }
 
         $jsonStr = $data['candidates'][0]['content']['parts'][0]['text'] ?? '[]';
+        
+        $jsonStr = trim($jsonStr);
+        if (str_starts_with($jsonStr, '```json')) {
+            $jsonStr = substr($jsonStr, 7);
+        } elseif (str_starts_with($jsonStr, '```')) {
+            $jsonStr = substr($jsonStr, 3);
+        }
+        if (str_ends_with($jsonStr, '```')) {
+            $jsonStr = substr($jsonStr, 0, -3);
+        }
+        $jsonStr = trim($jsonStr);
+
         $products = json_decode($jsonStr, true);
 
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($products)) {

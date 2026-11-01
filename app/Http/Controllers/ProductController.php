@@ -3,140 +3,160 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
-use App\Models\Catalog;
 use App\Models\Supplier;
-use App\Services\ProductSearchService;
 use Illuminate\Http\Request;
-use Spatie\SimpleExcel\SimpleExcelWriter;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProductController extends Controller
 {
-    public function __construct(
-        private readonly ProductSearchService $searchService
-    ) {
-    }
-
     public function index(Request $request)
     {
-        $products = $this->searchService->search($request->all());
-        $catalogs = Catalog::orderBy('created_at', 'desc')->get();
-        $suppliers = Supplier::orderBy('name', 'asc')->get();
-        $perPage = $request->input('per_page', 20);
+        $query = Product::with('supplier');
 
-        return view('products.index', compact('products', 'catalogs', 'suppliers', 'perPage'));
+        if ($request->filled('q')) {
+            $q = trim($request->input('q'));
+            $query->where(function ($sub) use ($q) {
+                $sub->where('codigo', 'like', "%{$q}%")
+                    ->orWhere('nombre', 'like', "%{$q}%");
+            });
+        }
+
+        if ($request->filled('supplier_id')) {
+            $query->where('supplier_id', $request->input('supplier_id'));
+        }
+
+        if ($request->boolean('revisar')) {
+            $query->where('revisar', true);
+        }
+
+        $products = $query->orderBy('id', 'desc')->paginate(50)->withQueryString();
+        $suppliers = Supplier::orderBy('name')->get();
+
+        return view('products.index', compact('products', 'suppliers'));
+    }
+
+    public function show(Product $product)
+    {
+        $product->load(['supplier', 'catalog']);
+        return response()->json([
+            'id' => $product->id,
+            'codigo' => $product->codigo,
+            'variante' => $product->variante,
+            'nombre' => $product->nombre,
+            'precio_bs' => $product->precio_bs ? number_format($product->precio_bs, 2, ',', '.') : '—',
+            'precio_divisa' => $product->precio_divisa ? number_format($product->precio_divisa, 2, '.', '') : '—',
+            'descripcion_tecnica' => $product->descripcion_tecnica ?: '—',
+            'garantia' => $product->garantia ?: '—',
+            'condiciones_proveedor' => $product->supplier?->condiciones ?: '—',
+            'tiempo_entrega' => $product->supplier?->tiempo_entrega ?: '—',
+            'incluye' => $product->incluye ?: '—',
+            'revisar' => $product->revisar,
+            'revisar_motivo' => $product->revisar_motivo,
+            'pagina' => $product->pagina,
+        ]);
+    }
+
+    public function edit(Product $product)
+    {
+        $suppliers = Supplier::orderBy('name')->get();
+        return view('products.edit', compact('product', 'suppliers'));
     }
 
     public function update(Request $request, Product $product)
     {
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255',
-            'precio_divisa' => 'required|numeric|min:0',
-            'precio_bs' => 'nullable|numeric|min:0',
+            'codigo' => ['required', 'string', 'max:255'],
+            'variante' => ['nullable', 'string', 'max:255'],
+            'nombre' => ['required', 'string', 'max:500'],
+            'precio_divisa' => ['nullable', 'numeric'],
+            'precio_bs' => ['nullable', 'numeric'],
+            'descripcion_tecnica' => ['nullable', 'string'],
+            'incluye' => ['nullable', 'string'],
+            'garantia' => ['nullable', 'string', 'max:255'],
+            'pagina' => ['nullable', 'integer'],
         ]);
+
+        $validated['variante'] = $validated['variante'] ?? '';
+        $validated['revisar'] = false;
+        $validated['revisar_motivo'] = null;
 
         $product->update($validated);
 
-        return redirect()->route('products.index')->with('success', 'Producto actualizado correctamente.');
+        return redirect()->route('products.index')->with('status', 'Producto actualizado correctamente.');
     }
 
-    public function destroy(Product $product)
+    public function exportCsv(Request $request): StreamedResponse
     {
-        $product->delete();
-        
-        return redirect()->route('products.index')->with('success', 'Producto eliminado correctamente.');
-    }
+        $query = Product::with('supplier');
 
-    public function toggleActive(Product $product)
-    {
-        $product->update([
-            'is_active' => !$product->is_active
-        ]);
-
-        $status = $product->is_active ? 'activado' : 'desactivado';
-        
-        return redirect()->route('products.index')->with('success', "Producto {$status} correctamente.");
-    }
-
-    public function export(Request $request)
-    {
-        $query = Product::with(['catalog', 'supplier']);
-
-        if ($request->filled('search')) {
-            $search = trim($request->search);
-            $query->where(function($q) use ($search) {
-                $q->where('nombre', 'like', "%{$search}%")
-                  ->orWhere('codigo', 'like', "%{$search}%")
-                  ->orWhere('descripcion', 'like', "%{$search}%");
+        if ($request->filled('q')) {
+            $q = trim($request->input('q'));
+            $query->where(function ($sub) use ($q) {
+                $sub->where('codigo', 'like', "%{$q}%")
+                    ->orWhere('nombre', 'like', "%{$q}%");
             });
         }
 
-        if ($request->filled('catalog_id')) {
-            $query->where('catalog_id', $request->catalog_id);
-        }
-
         if ($request->filled('supplier_id')) {
-            $query->where('supplier_id', $request->supplier_id);
+            $query->where('supplier_id', $request->input('supplier_id'));
         }
 
-        $fileName = 'productos_export_' . date('Y-m-d_H-i-s') . '.xlsx';
-        $tempPath = tempnam(sys_get_temp_dir(), 'export_') . '.xlsx';
-
-        $writer = SimpleExcelWriter::create($tempPath);
-
-        $query->chunk(1000, function ($products) use ($writer) {
-            foreach ($products as $product) {
-                $writer->addRow([
-                    'Proveedor' => $product->supplier ? $product->supplier->name : 'Proveedor Genérico',
-                    'Código' => $product->codigo,
-                    'Nombre' => $product->nombre,
-                    'Precio Costo Divisa' => $product->precio_divisa,
-                    'Precio Costo Bs' => $product->precio_bs,
-                    'Precio Venta Divisa' => $product->precio_venta_divisa,
-                    'Precio Venta Bs' => $product->precio_venta_bs,
-                    'Fórmula Venta' => $product->sale_price_formula ?? '',
-                    'Base Venta' => $product->sale_price_base ?? '',
-                    'Descripción técnica' => $product->descripcion ?? '',
-                    'Garantía' => $product->garantia ?? '',
-                    'Condiciones proveedor' => $product->condiciones ?? '',
-                    'Tiempo entrega' => $product->tiempo_entrega ?? '',
-                    'Método extracción' => $product->extraction_method ?? '',
-                    'Página' => $product->page_number ?? '',
-                    'Catálogo' => $product->catalog ? $product->catalog->original_filename : 'N/A',
-                    'Estado' => $product->is_active ? 'Activo' : 'Inactivo',
-                ]);
-            }
-        });
-
-        $writer->close();
-
-        return response()->download($tempPath, $fileName, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ])->deleteFileAfterSend(true);
-    }
-
-    public function bulkAction(Request $request)
-    {
-        $validated = $request->validate([
-            'action' => 'required|in:delete,activate,deactivate',
-            'product_ids' => 'required|array',
-            'product_ids.*' => 'exists:products,id'
-        ]);
-
-        $ids = $validated['product_ids'];
-        $action = $validated['action'];
-        $count = count($ids);
-
-        if ($action === 'delete') {
-            Product::whereIn('id', $ids)->delete();
-            $msg = "{$count} productos eliminados correctamente.";
-        } elseif ($action === 'activate') {
-            Product::whereIn('id', $ids)->update(['is_active' => true]);
-            $msg = "{$count} productos activados correctamente.";
-        } elseif ($action === 'deactivate') {
-            Product::whereIn('id', $ids)->update(['is_active' => false]);
-            $msg = "{$count} productos desactivados correctamente.";
+        if ($request->boolean('revisar')) {
+            $query->where('revisar', true);
         }
 
-        return redirect()->back()->with('success', $msg);
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="productos_' . date('Y-m-d_His') . '.csv"',
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
+        ];
+
+        $callback = function () use ($query) {
+            $handle = fopen('php://output', 'w');
+            // BOM UTF-8 para Excel
+            fprintf($handle, chr(0xEF).chr(0xBB).chr(0xBF));
+
+            fputcsv($handle, [
+                'ID',
+                'Proveedor',
+                'Código',
+                'Variante',
+                'Nombre',
+                'Precio Divisa (USD)',
+                'Precio Bs',
+                'Garantía',
+                'Página',
+                'Revisar',
+                'Motivo Revisar',
+                'Descripción Técnica',
+                'Incluye',
+            ]);
+
+            $query->chunk(500, function ($batch) use ($handle) {
+                foreach ($batch as $p) {
+                    fputcsv($handle, [
+                        $p->id,
+                        $p->supplier?->name ?? '',
+                        $p->codigo,
+                        $p->variante,
+                        $p->nombre,
+                        $p->precio_divisa,
+                        $p->precio_bs,
+                        $p->garantia,
+                        $p->pagina,
+                        $p->revisar ? 'SI' : 'NO',
+                        $p->revisar_motivo,
+                        $p->descripcion_tecnica,
+                        $p->incluye,
+                    ]);
+                }
+            });
+
+            fclose($handle);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

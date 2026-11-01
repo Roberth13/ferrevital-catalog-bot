@@ -1,103 +1,159 @@
-@extends('layouts.app')
+<x-app-layout>
+    <x-slot name="header">
+        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
+            Catálogos de Proveedores
+        </h2>
+    </x-slot>
 
-@section('title', 'Catálogos | Ferrevital')
+    <div class="py-8">
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
 
-@section('content')
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-        <div>
-            <h1 style="font-size: 1.8rem; margin: 0; background: linear-gradient(to right, var(--primary), #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                Catálogos Subidos
-            </h1>
-            <p style="color: var(--text-muted); margin: 0.25rem 0 0;">Historial y estado de procesamiento de los documentos PDF.</p>
-        </div>
-        <a href="{{ route('catalogs.create') }}" class="btn btn-primary">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-            Subir Catálogo
-        </a>
-    </div>
+            @if (session('status'))
+                <div class="p-4 bg-emerald-100 border border-emerald-400 text-emerald-800 rounded">
+                    {{ session('status') }}
+                </div>
+            @endif
 
-    @if(session('success'))
-        <div style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 0.5rem; background: var(--success-bg); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2);">
-            {{ session('success') }}
-        </div>
-    @endif
+            @if ($errors->any())
+                <div class="p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+                    <ul class="list-disc pl-5">
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
 
-    <div style="background: var(--card-bg); border-radius: 0.75rem; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); overflow: hidden;">
-        <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
-                <thead>
-                    <tr style="background-color: var(--bg-color); border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
-                        <th style="padding: 0.75rem 1rem;">ID</th>
-                        <th style="padding: 0.75rem 1rem;">Proveedor</th>
-                        <th style="padding: 0.75rem 1rem;">Archivo</th>
-                        <th style="padding: 0.75rem 1rem;">Fecha</th>
-                        <th style="padding: 0.75rem 1rem; text-align: center;">Estado</th>
-                        <th style="padding: 0.75rem 1rem; text-align: center;">Productos</th>
-                        <th style="padding: 0.75rem 1rem; text-align: right;">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse($catalogs as $catalog)
-                        <tr style="border-bottom: 1px solid var(--border-color);">
-                            <td style="padding: 0.75rem 1rem; color: var(--text-muted); font-size: 0.85rem;">#{{ $catalog->id }}</td>
-                            <td style="padding: 0.75rem 1rem; font-weight: 600; color: var(--text-main);">
-                                {{ $catalog->supplier ? $catalog->supplier->name : 'Proveedor Genérico' }}
-                            </td>
-                            <td style="padding: 0.75rem 1rem; color: var(--text-main); font-weight: 500;">
-                                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="color: var(--error);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                                    {{ $catalog->original_filename }}
-                                </div>
-                            </td>
-                            <td style="padding: 0.75rem 1rem; color: var(--text-muted); font-size: 0.85rem;">
-                                {{ $catalog->created_at ? $catalog->created_at->format('d/m/Y H:i') : 'N/A' }}
-                            </td>
-                            <td style="padding: 0.75rem 1rem; text-align: center;">
-                                @if($catalog->status === 'completed')
-                                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; background: var(--success-bg); color: var(--success);">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                        Completado
-                                    </span>
-                                @elseif($catalog->status === 'processing')
-                                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; background: var(--warning-bg); color: var(--warning);">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="animation: spin 1s linear infinite;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                        Procesando
-                                    </span>
-                                @elseif($catalog->status === 'pending')
-                                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; background: var(--bg-color); color: var(--text-muted); border: 1px solid var(--border-color);">
-                                        Pendiente
-                                    </span>
-                                @else
-                                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; background: var(--error-bg); color: var(--error);" title="No fue posible procesar el catálogo.">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                        Fallido
-                                    </span>
-                                @endif
-                            </td>
-                            <td style="padding: 0.75rem 1rem; text-align: center; font-weight: 600;">
-                                {{ $catalog->total_products }}
-                            </td>
-                            <td style="padding: 0.75rem 1rem; text-align: right;">
-                                <a href="{{ route('catalogs.show', $catalog) }}" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
-                                    Ver Detalle
-                                </a>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="7" style="padding: 2.5rem; text-align: center; color: var(--text-muted);">
-                                No se ha subido ningún catálogo todavía.
-                            </td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
+            <!-- Formulario de Subida -->
+            <div class="bg-white p-6 rounded-lg shadow-sm">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">Subir Nuevo Catálogo (PDF hasta 200MB)</h3>
+                <form method="POST" action="{{ route('catalogs.store') }}" enctype="multipart/form-data" class="space-y-4">
+                    @csrf
 
-        @if($catalogs->hasPages())
-            <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color);">
-                {{ $catalogs->links() }}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="supplier_name" class="block text-sm font-medium text-gray-700">Nombre del Proveedor *</label>
+                            <input type="text" name="supplier_name" id="supplier_name" required placeholder="Ej. Dong Cheng, INGCO, Jadever..." class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        </div>
+
+                        <div>
+                            <label for="pdf" class="block text-sm font-medium text-gray-700">Archivo PDF *</label>
+                            <input type="file" name="pdf" id="pdf" accept="application/pdf" required class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                        </div>
+                    </div>
+
+                    <!-- Bloque Opciones de prueba -->
+                    <div class="border border-dashed border-gray-300 rounded p-4 bg-gray-50">
+                        <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-600 mb-2">Opciones de prueba (Opcional)</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="first_page" class="block text-xs font-medium text-gray-600">Página inicial</label>
+                                <input type="number" min="1" name="first_page" id="first_page" placeholder="Ej. 2" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                            </div>
+                            <div>
+                                <label for="last_page" class="block text-xs font-medium text-gray-600">Página final</label>
+                                <input type="number" min="1" name="last_page" id="last_page" placeholder="Ej. 5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button type="submit" class="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-indigo-500">
+                            Subir y Procesar
+                        </button>
+                    </div>
+                </form>
             </div>
-        @endif
+
+            <!-- Lista de Catálogos -->
+            <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+                <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                    <h3 class="text-base font-bold text-gray-800">Catálogos Registrados</h3>
+                    @if($hasActive)
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 animate-pulse">
+                            Actualizando cada 10 s...
+                        </span>
+                    @endif
+                </div>
+
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proveedor</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Archivo</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Páginas</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Productos</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Costo USD</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mensaje / Error</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        @forelse($catalogs as $catalog)
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                                    {{ $catalog->created_at->format('d/m/Y H:i') }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                    {{ $catalog->supplier?->name }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-600 truncate max-w-xs" title="{{ $catalog->original_name }}">
+                                    {{ $catalog->original_name }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                    @if($catalog->status === 'listo')
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            Listo
+                                        </span>
+                                    @elseif($catalog->status === 'procesando')
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 animate-pulse">
+                                            Procesando
+                                        </span>
+                                    @elseif($catalog->status === 'pendiente')
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                            Pendiente
+                                        </span>
+                                    @else
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                            Error
+                                        </span>
+                                    @endif
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                    {{ $catalog->total_pages ?? ($catalog->first_page ? "{$catalog->first_page}..{$catalog->last_page}" : '—') }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                                    {{ $catalog->total_products ?? '—' }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">
+                                    {{ $catalog->cost_usd ? '$' . number_format($catalog->cost_usd, 4) : '—' }}
+                                </td>
+                                <td class="px-6 py-4 text-xs text-gray-600 max-w-sm">
+                                    <div class="line-clamp-2" title="{{ $catalog->message }}">
+                                        {{ $catalog->message ?: '—' }}
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="8" class="px-6 py-8 text-center text-gray-500">
+                                    No se ha subido ningún catálogo todavía.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
     </div>
-@endsection
+
+    @if($hasActive)
+        <script>
+            setTimeout(() => {
+                window.location.reload();
+            }, 10000);
+        </script>
+    @endif
+</x-app-layout>

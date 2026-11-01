@@ -1,33 +1,38 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\ProductController;
-use App\Http\Controllers\SalePriceController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SupplierController;
+use Illuminate\Support\Facades\Route;
 
-Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+Route::get('/', function () {
+    return redirect()->route('products.index');
+});
 
-// Suppliers
-Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
-Route::post('/suppliers', [SupplierController::class, 'store'])->name('suppliers.store');
+Route::middleware('auth')->group(function () {
+    // 1. Productos (todos los usuarios autenticados: admin y empleado)
+    Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+    Route::get('/products/export', [ProductController::class, 'exportCsv'])->name('products.export');
+    Route::get('/products/{product}', [ProductController::class, 'show'])->name('products.show');
 
-// Catalogs
-Route::get('/catalogs', [CatalogController::class, 'index'])->name('catalogs.index');
-Route::get('/catalogs/create', [CatalogController::class, 'create'])->name('catalogs.create');
-Route::post('/catalogs', [CatalogController::class, 'store'])->name('catalogs.store');
-Route::get('/catalogs/{catalog}', [CatalogController::class, 'show'])->name('catalogs.show');
+    // 2. Rutas protegidas solo para Admin
+    Route::middleware('admin')->group(function () {
+        Route::get('/products/{product}/edit', [ProductController::class, 'edit'])->name('products.edit');
+        Route::put('/products/{product}', [ProductController::class, 'update'])->name('products.update');
 
-// Products
-Route::get('/products', [ProductController::class, 'index'])->name('products.index');
-Route::post('/products/bulk-action', [ProductController::class, 'bulkAction'])->name('products.bulkAction');
-Route::put('/products/{product}', [ProductController::class, 'update'])->name('products.update');
-Route::delete('/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
-Route::patch('/products/{product}/toggle-active', [ProductController::class, 'toggleActive'])->name('products.toggleActive');
-Route::get('/products/export', [ProductController::class, 'export'])->name('products.export');
+        Route::get('/catalogs', [CatalogController::class, 'index'])->name('catalogs.index');
+        Route::post('/catalogs', [CatalogController::class, 'store'])->name('catalogs.store');
 
-// Sale Prices (Precio de Venta)
-Route::get('/sale-prices', [SalePriceController::class, 'index'])->name('sale-prices.index');
-Route::post('/sale-prices/apply', [SalePriceController::class, 'apply'])->name('sale-prices.apply');
+        Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
+        Route::get('/suppliers/{supplier}/edit', [SupplierController::class, 'edit'])->name('suppliers.edit');
+        Route::put('/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
+    });
 
+    // Perfil estándar Breeze
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+});
+
+require __DIR__.'/auth.php';

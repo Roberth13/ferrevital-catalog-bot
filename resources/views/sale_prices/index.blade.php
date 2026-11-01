@@ -430,7 +430,7 @@
         </table>
 
         <div class="pagination-container">
-            {{ $products->links('pagination::bootstrap-4') }}
+            {{ $products->links() }}
         </div>
     </div>
 @endsection
