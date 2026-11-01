@@ -60,6 +60,11 @@
                         </div>
 
                         <div>
+                            <label for="condiciones_proveedor" class="block text-sm font-medium text-gray-700">Condiciones del Producto (pedido mínimo, empaque...)</label>
+                            <input type="text" name="condiciones_proveedor" id="condiciones_proveedor" value="{{ old('condiciones_proveedor', $product->condiciones_proveedor) }}" placeholder="Min: 10 PZA; EMP.MAYOR: 2000" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        </div>
+
+                        <div>
                             <label for="garantia" class="block text-sm font-medium text-gray-700">Garantía</label>
                             <input type="text" name="garantia" id="garantia" value="{{ old('garantia', $product->garantia) }}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                         </div>

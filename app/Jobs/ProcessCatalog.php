@@ -136,6 +136,7 @@ class ProcessCatalog implements ShouldQueue
                         'precio_divisa' => $prod['precio_divisa'] ?? null,
                         'precio_bs' => $prod['precio_bs'] ?? null,
                         'otros_precios' => $prod['otros_precios'] ?? null,
+                        'condiciones_proveedor' => $prod['condiciones_proveedor'] ?? null,
                         'descripcion_tecnica' => $prod['descripcion_tecnica'] ?? null,
                         'incluye' => $prod['incluye'] ?? null,
                         'garantia' => $prod['garantia'] ?? null,

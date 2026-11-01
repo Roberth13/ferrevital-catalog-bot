@@ -17,6 +17,7 @@ class Producto(BaseModel):
     nombre: str = Field(..., description="Nombre comercial del producto, sin repetir el codigo/modelo (que va en 'codigo'), ej. 'TALADRO DE IMPACTO ELECTRICO 500W (110 V)'.")
     precio_divisa: Optional[float] = Field(None, description="Precio principal en dolares (numero tras 'Ref.', 'REF:', '$' o 'USD'). Coma decimal -> punto. null si no aparece.")
     otros_precios: Optional[str] = Field(None, description="Cualquier otra columna de precio (BCV, mayor, detal, PVP, con IVA, etc.) como texto 'etiqueta: valor; etiqueta: valor', conservando la etiqueta tal como aparece. null si no hay.")
+    condiciones_proveedor: Optional[str] = Field(None, description="Pedido minimo, empaque o unidad de venta, y politica de venta del proveedor, como texto 'etiqueta: valor; etiqueta: valor' con la etiqueta tal como aparece (ej. 'Min: 10 PZA; EMP.MAYOR: 2000; Politica Venta: 50 UNIDADES'). null si no hay.")
     descripcion_tecnica: Optional[str] = Field(None, description="Especificaciones tecnicas y caracteristicas, una por linea, en el texto original. No inventes ni resumas valores.")
     incluye: Optional[str] = Field(None, description="Contenido de la seccion 'QUE INCLUYE', tal cual. null si no hay.")
     garantia: Optional[str] = Field(None, description="Garantia impresa en la pagina o catalogo, ej. '1 Año de Garantia'. null si no aparece.")
@@ -33,7 +34,9 @@ PROMPT_GENERICO = """Eres un extractor de datos de catálogos y listas de precio
 Extrae CADA producto que tenga precio o ficha técnica. Reglas:
 - Un registro por cada combinación código + variante. Si el mismo modelo aparece con variantes o presentaciones distintas (tipo, color, voltaje, contenido del kit) y cada una tiene su propio precio, devuelve un registro por cada una.
 - Copia los valores tal como están impresos; no corrijas ni conviertas unidades.
+- Si cada producto trae más de un identificador, usa como codigo el que no se repita entre productos del documento. Si todos son únicos, usa el que esté rotulado como CÓDIGO, SKU, REF o MODELO, en ese orden de preferencia. El otro identificador va al inicio de descripcion_tecnica como 'Código alterno: X'.
 - precio_divisa es el precio principal en dólares (suele venir como Ref., REF:, $ o USD). Cualquier otra columna de precio (BCV, mayor, detal, PVP, con IVA, etc.) va en otros_precios como texto 'etiqueta: valor; etiqueta: valor', conservando la etiqueta tal como aparece. No calcules ni conviertas precios.
+- condiciones_proveedor es pedido mínimo, empaque o unidad de venta, y política de venta del proveedor, como texto 'etiqueta: valor; etiqueta: valor' con la etiqueta tal como aparece (ej. 'Min: 10 PZA; EMP.MAYOR: 2000; Política Venta: 50 UNIDADES'). otros_precios es SOLO para columnas de precio. No extraigas existencias ni stock: ignóralos.
 - Si un campo NO está impreso, devuelve null. Nunca lo deduzcas ni lo inventes.
 - La garantía puede ser un aviso general de la página o del catálogo; aplícala a los productos a los que corresponda.
 - "incluye" es solo lo que el documento lista como contenido o accesorios incluidos. Las especificaciones van en descripcion_tecnica.
@@ -220,8 +223,10 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         prepared_pages = []
+        page_obj_map = {}
         for pno in range(first_page, last_page + 1):
             page = doc[pno - 1]
+            page_obj_map[pno] = page
             extracted_text = (page.get_text() or "").strip()
             use_mode = args.input
 
@@ -250,10 +255,10 @@ def main():
                     "image_path": img_path
                 })
 
-        doc.close()
-
         # Lotes de 4 páginas
         batch_size = 4
+        fallback_pages_retried = 0
+
         for i in range(0, len(prepared_pages), batch_size):
             batch = prepared_pages[i:i + batch_size]
             nums = [p["num"] for p in batch]
@@ -262,14 +267,66 @@ def main():
                 batch_products, tin, tout = process_batch(model, batch)
                 tot_in += tin
                 tot_out += tout
-                all_raw_products.extend(batch_products)
             except Exception as e:
                 sys.stderr.write(f"Error procesando lote {nums}: {e}\n")
                 advertencias.append(f"Error en lote de páginas {nums}: {str(e)[:200]}")
                 raise e
 
+            # Fallback genérico: si una página procesada como texto produce algún producto sin precio_divisa,
+            # vuelve a procesar ESA página como imagen y reemplaza los productos de esa página con el resultado de la imagen.
+            pages_by_num = {p["num"]: p for p in batch}
+            prods_by_page = {}
+            for prod in batch_products:
+                p_dict = prod if isinstance(prod, dict) else prod.model_dump()
+                pno = p_dict.get("pagina")
+                prods_by_page.setdefault(pno, []).append(prod)
+
+            final_batch_products = []
+            for item in batch:
+                pno = item["num"]
+                page_prods = prods_by_page.get(pno, [])
+
+                # Verificar si era texto y algún producto no tiene precio_divisa
+                has_missing_price = False
+                if item["type"] == "text":
+                    for prod in page_prods:
+                        p_dict = prod if isinstance(prod, dict) else prod.model_dump()
+                        if p_dict.get("precio_divisa") is None:
+                            has_missing_price = True
+                            break
+
+                if item["type"] == "text" and has_missing_price:
+                    sys.stderr.write(f"Fallback genérico: Página {pno} (texto) tiene productos sin precio_divisa. Reintentando como imagen...\n")
+                    fallback_pages_retried += 1
+                    time.sleep(2)
+                    img_path = os.path.join(tmp_dir, f"fallback_page_{pno:04d}.jpg")
+                    render_page_image(page_obj_map[pno], img_path)
+                    fallback_item = [{
+                        "num": pno,
+                        "type": "image",
+                        "content": None,
+                        "image_path": img_path
+                    }]
+                    try:
+                        fb_prods, fb_tin, fb_tout = process_batch(model, fallback_item)
+                        tot_in += fb_tin
+                        tot_out += fb_tout
+                        final_batch_products.extend(fb_prods)
+                    except Exception as fb_err:
+                        sys.stderr.write(f"Error en fallback de imagen para página {pno}: {fb_err}\n")
+                        final_batch_products.extend(page_prods)
+                else:
+                    final_batch_products.extend(page_prods)
+
+            all_raw_products.extend(final_batch_products)
+
             if i + batch_size < len(prepared_pages):
                 time.sleep(2)
+
+        doc.close()
+
+        if fallback_pages_retried > 0:
+            advertencias.append(f"Se reintentaron {fallback_pages_retried} página(s) con fallback de texto a imagen por falta de precio_divisa.")
 
     # Post-procesamiento
     # Regla 5: Si (codigo, variante) aparece mas de una vez, conserva el primero y marca revisar con "duplicado en el catálogo"
@@ -311,6 +368,7 @@ def main():
             "nombre": item_dict.get("nombre") or "",
             "precio_divisa": item_dict.get("precio_divisa"),
             "otros_precios": item_dict.get("otros_precios"),
+            "condiciones_proveedor": item_dict.get("condiciones_proveedor"),
             "descripcion_tecnica": item_dict.get("descripcion_tecnica"),
             "incluye": item_dict.get("incluye"),
             "garantia": item_dict.get("garantia"),

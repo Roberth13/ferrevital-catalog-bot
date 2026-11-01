@@ -21,6 +21,7 @@ return new class extends Migration
             $table->decimal('precio_divisa', 12, 2)->nullable();
             $table->decimal('precio_bs', 14, 2)->nullable();
             $table->text('otros_precios')->nullable();
+            $table->text('condiciones_proveedor')->nullable();
             $table->text('descripcion_tecnica')->nullable();
             $table->text('incluye')->nullable();
             $table->string('garantia')->nullable();
